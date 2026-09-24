@@ -18,7 +18,7 @@
   }
 
   function defaultStatus() {
-    return app.i18n.text("框架阶段:3D 视口与生图链路尚未实现", "Framework stage: the 3D viewport and generation pipeline are not implemented yet");
+    return app.i18n.text("拖动关节摆姿势,拖空白处转视角;点\"搬运\"整体移动小人", "Drag a joint to pose, drag the background to orbit; tap Move to shift the whole figure");
   }
 
   function bindMenu() {
@@ -66,6 +66,105 @@
     };
   }
 
+  var AXIS_LABEL = [
+    { key: "x", zh: "屈伸", en: "Bend" },
+    { key: "y", zh: "自转", en: "Twist" },
+    { key: "z", zh: "侧摆", en: "Splay" }
+  ];
+
+  function jointLabel(name) {
+    var joint = app.rig.byName(name);
+    if (!joint) return name;
+    return app.i18n.text(joint.label[0], joint.label[1]);
+  }
+
+  /* 关节面板:选中谁就只显示谁的三条通道。拖视口是主路径,滑杆用来微调与读数值。 */
+  function renderJointPanel(name) {
+    var panel = node("joint-panel");
+    if (!panel) return;
+    var joint = app.rig.byName(name);
+    if (!joint) {
+      panel.classList.remove("is-active");
+      panel.innerHTML = '<span class="joint-empty">' + app.i18n.text(
+        "点视口里的小人选中一个关节,或直接拖动关节摆姿势",
+        "Tap a joint on the figure, or drag a joint to pose it"
+      ) + "</span>";
+      return;
+    }
+    panel.classList.add("is-active");
+    var angles = app.features.poser.angles()[name];
+    var html = '<div class="joint-head"><strong>' + jointLabel(name) + "</strong><code>" + name + "</code>" +
+      '<button class="joint-close" type="button" data-action="deselect">' +
+      app.i18n.text("收起", "Close") + "</button></div>";
+    AXIS_LABEL.forEach(function (axis) {
+      html += '<div class="axis-row"><label>' + app.i18n.text(axis.zh, axis.en) + "</label>" +
+        '<input type="range" min="-180" max="180" step="1" data-axis="' + axis.key + '" value="' +
+        Math.round(angles[axis.key]) + '"><output>' + Math.round(angles[axis.key]) + "°</output></div>";
+    });
+    panel.innerHTML = html;
+
+    var sliders = panel.querySelectorAll("input[data-axis]");
+    Array.prototype.forEach.call(sliders, function (slider) {
+      slider.oninput = function () {
+        var value = app.features.poser.setJointAngle(name, slider.dataset.axis, Number(slider.value));
+        var output = slider.parentNode.querySelector("output");
+        if (output) output.textContent = Math.round(value) + "°";
+      };
+    });
+    var close = panel.querySelector('[data-action="deselect"]');
+    if (close) close.onclick = function () { app.features.poser.selectJoint(""); };
+  }
+
+  /* 拖拽与滑杆都会改角度,统一在这里刷新数值,避免滑杆与视口打架 */
+  function syncJointPanel() {
+    var panel = node("joint-panel");
+    if (!panel || !app.state.selectedJoint) return;
+    var angles = app.features.poser.angles()[app.state.selectedJoint];
+    if (!angles) return;
+    var sliders = panel.querySelectorAll("input[data-axis]");
+    Array.prototype.forEach.call(sliders, function (slider) {
+      var value = Math.round(angles[slider.dataset.axis]);
+      if (document.activeElement !== slider) slider.value = String(value);
+      var output = slider.parentNode.querySelector("output");
+      if (output && document.activeElement !== slider) output.textContent = value + "°";
+    });
+  }
+
+  function bindMoveBar() {
+    var move = node("pose-move");
+    if (move) move.onclick = function () {
+      var next = app.components.viewport.mode() === "move" ? "pose" : "move";
+      app.components.viewport.setMode(next);
+      move.classList.toggle("is-on", next === "move");
+      status(next === "move"
+        ? app.i18n.text("搬运模式:拖动小人整体平移,姿态不变", "Move mode: drag the figure around, the pose stays as is")
+        : app.i18n.text("造型模式:拖动关节摆姿势", "Pose mode: drag joints to pose"));
+    };
+    var fit = node("pose-fit");
+    if (fit) fit.onclick = function () {
+      app.components.viewport.frameCamera();
+      status(app.i18n.text("已重新取景", "Camera reframed"));
+    };
+  }
+
+  function bindPoseEvents() {
+    app.events.on("pose:selected", function (detail) {
+      renderJointPanel(detail.joint);
+    });
+    app.events.on("pose:changed", function () {
+      syncJointPanel();
+    });
+    app.events.on("viewport:unavailable", function (detail) {
+      status(detail.reason);
+    });
+    app.events.on("viewport:lost", function (detail) {
+      status(detail.reason);
+    });
+    app.events.on("viewport:restored", function () {
+      status(app.i18n.text("图形上下文已恢复", "Graphics context restored"));
+    });
+  }
+
   function bindGeneration() {
     var generate = node("generate");
     if (!generate) return;
@@ -103,7 +202,10 @@
     app.i18n.apply();
     bindMenu();
     bindPoseBar();
+    bindMoveBar();
+    bindPoseEvents();
     bindGeneration();
+    renderJointPanel("");
     var version = node("app-version");
     if (version) version.textContent = "v" + app.version;
     return true;

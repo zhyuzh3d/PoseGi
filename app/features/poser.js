@@ -39,6 +39,22 @@
     return current()[name][key];
   }
 
+  /* 一次改多个通道:拖拽一次要同时动屈伸与侧摆,分两次调用会多发一次事件与一次重绘 */
+  function patchJoint(name, patch) {
+    var joint = app.rig.byName(name);
+    if (!joint) throw new Error("未知关节:" + String(name));
+    var applied = {};
+    app.rig.angleKeys.forEach(function (key) {
+      if (!patch || patch[key] === undefined || patch[key] === null) return;
+      current()[name][key] = app.utils.normalizeAngle(
+        app.utils.clamp(Number(patch[key]), app.rig.limits.min, app.rig.limits.max)
+      );
+      applied[key] = current()[name][key];
+    });
+    if (Object.keys(applied).length) changed(name, "drag");
+    return applied;
+  }
+
   function selectJoint(name) {
     app.state.selectedJoint = name && app.rig.byName(name) ? String(name) : "";
     app.events.emit("pose:selected", { joint: app.state.selectedJoint });
@@ -88,6 +104,7 @@
     init: init,
     angles: current,
     setJointAngle: setJointAngle,
+    patchJoint: patchJoint,
     selectJoint: selectJoint,
     applyPreset: applyPreset,
     mirror: mirrorNow,

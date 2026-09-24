@@ -13,7 +13,7 @@
 
 ```
 index.html            入口;只放骨架与资源引用
-hermit.json           包清单(schema 2, happId io.github.zhyuzh3d.posegi)
+hermit.json           包清单(schema 2, happId life.airen.posegi)
 guid.md               本文件
 app/app.js            启动与装配
 app/core/             纯逻辑,不碰 DOM 与宿主:namespace / utils / i18n / runtime / rig

@@ -6,6 +6,25 @@
 (function (app) {
   "use strict";
 
+  /* 视口与摆姿的双向装配
+   *
+   * 分层约定:components 不反向调用 features,所以两边都只发事件,由这里接起来。
+   * 单向环:视口拖拽 → viewport:rotate → poser 改姿态 → pose:changed → 视口重画。
+   */
+  function wireViewport() {
+    var viewport = app.components.viewport;
+    var poser = app.features.poser;
+
+    viewport.setPose(poser.angles());
+    viewport.setSelectedJoint("");
+    viewport.setMode("pose");
+
+    app.events.on("viewport:picked", function (detail) { poser.selectJoint(detail.joint); });
+    app.events.on("viewport:rotate", function (detail) { poser.patchJoint(detail.joint, detail.patch); });
+    app.events.on("pose:changed", function (detail) { viewport.setPose(detail.angles); });
+    app.events.on("pose:selected", function (detail) { viewport.setSelectedJoint(detail.joint); });
+  }
+
   async function start() {
     app.components.ui.init();
     app.events.on("error", function (error) { app.components.ui.toast(app.utils.cleanError(error), "error"); });
@@ -15,8 +34,10 @@
     app.i18n.theme();
 
     app.components.viewport.init(document.getElementById("stage-viewport"));
+    app.components.viewport.setTheme(app.state.theme);
     app.services.imageEngine.init({ capture: app.components.viewport.capture });
     app.features.poser.init();
+    wireViewport();
     app.components.gallery.init(document.getElementById("gallery-body"));
     app.components.settings.init();
     app.features.editor.init();
@@ -26,7 +47,9 @@
     app.platform.hermit.reportTheme();
 
     var media = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
-    if (media && media.addListener) media.addListener(app.i18n.theme);
+    if (media && media.addListener) media.addListener(function () {
+      app.components.viewport.setTheme(app.i18n.theme());
+    });
 
     await app.features.selfTest.run();
   }
@@ -52,6 +75,15 @@
         busy: app.state.busy,
         status: app.state.status,
         viewport: { available: viewport.available(), reason: viewport.reason() },
+        scene: { mode: viewport.mode(), counts: viewport.counts(), view: viewport.view(), body: viewport.body() },
+        pose: (function () {
+          var angles = app.features.poser.angles();
+          var flat = {};
+          ["broot", "hips", "spine", "chest", "head", "shoulder.L", "upperArm.L", "forearm.L", "thigh.L", "shin.L", "foot.L"].forEach(function (name) {
+            flat[name] = [angles[name].x, angles[name].y, angles[name].z];
+          });
+          return flat;
+        })(),
         bridge: app.platform.hermit.available(),
         scrollY: window.scrollY,
         selfTest: window.__posegiSelfTest || null

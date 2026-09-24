@@ -28,13 +28,29 @@ assert.equal(app.version, "0.1.0");
   for (const joint of rig.joints) {
     assert.ok(!seen.has(joint.name), `重名关节 ${joint.name}`);
     if (joint.parent) assert.ok(seen.has(joint.parent), `${joint.name} 的父关节 ${joint.parent} 排在其后`);
-    assert.ok(joint.length > 0, `${joint.name} 的骨骼长度必须是正数`);
-    assert.ok(joint.radius > 0, `${joint.name} 的半径必须是正数`);
+    if (joint.parent) assert.ok(seen.has(joint.parent), `${joint.name} 的父关节 ${joint.parent} 排在其后`);
+    if (joint.pivot) assert.equal(joint.length, 0, `${joint.name} 是变换节点,不该有骨骼长度`);
+    else {
+      assert.ok(joint.length > 0, `${joint.name} 的骨骼长度必须是正数`);
+      assert.ok(joint.radius > 0, `${joint.name} 的半径必须是正数`);
+    }
     assert.equal(joint.offset.length, 3, `${joint.name} 的 offset 必须是三个分量`);
     assert.equal(joint.rest.length, 3, `${joint.name} 的 rest 必须是三个分量`);
     seen.add(joint.name);
   }
-  assert.equal(rig.joints.length, 19, "人形骨架固定 19 个关节");
+  assert.equal(rig.joints.length, 20, "人形骨架固定 20 个关节(19 个骨骼 + broot)");
+}
+
+/* 层级顶端:broot 是骨架顶层(父为空),hips 挂在它下面,bbox 在骨架之外 */
+{
+  const broot = rig.byName("broot");
+  assert.ok(broot, "缺少骨架顶层 broot");
+  assert.equal(broot.parent, "", "broot 必须是顶层节点");
+  assert.ok(rig.isPivot("broot"), "broot 是纯变换节点");
+  assert.equal(rig.byName("hips").parent, "broot", "hips 必须挂在 broot 下面");
+  assert.equal(rig.bbox, "bbox");
+  assert.equal(rig.byName("bbox"), null, "bbox 属于场景层,不在骨架表里");
+  assert.deepEqual(rig.jointPositions(rig.defaultAngles()).broot.origin, { x: 0, y: 0, z: 0 }, "broot 落在原点");
 }
 
 /* 成对关节必须左右齐备 */
@@ -82,6 +98,39 @@ for (const name of rig.names()) {
   assert.equal(tpose["shoulder.L"].z, -90, "T 字的左肩应指向 +X");
   assert.equal(tpose["shoulder.R"].z, 90, "T 字的右肩应指向 -X");
   assert.deepEqual(rig.applyPreset(before, "no-such-preset"), frozen, "未知预设等同于默认姿态");
+}
+
+/* 手臂不许埋进躯干:肩的水平偏移必须让上臂完全落在躯干轮廓之外。
+   真机踩到过:肩偏移只有 0.055 而髋半径就有 0.105,两条手臂全被躯干吃掉,
+   渲染出来在胸口糊成一坨横杠,还以为是骨架算错了。 */
+{
+  const halfWidth = (joint) => joint.radius * (joint.shape ? joint.shape.sx : 1);
+  const torsoHalf = Math.max(halfWidth(rig.byName("chest")), halfWidth(rig.byName("spine")), halfWidth(rig.byName("hips")));
+  const shoulderL = rig.byName("shoulder.L");
+  const shoulderR = rig.byName("shoulder.R");
+  for (const [side, shoulder] of [["L", shoulderL], ["R", shoulderR]]) {
+    const arm = rig.byName(`upperArm.${side}`);
+    assert.ok(
+      Math.abs(shoulder.offset[0]) - arm.radius > torsoHalf,
+      `肩偏移 ${shoulder.offset[0]} 不足以让 ${side} 侧上臂离开躯干(躯干半宽 ${torsoHalf.toFixed(3)})`
+    );
+  }
+  assert.ok(shoulderL.offset[0] > 0, "左肩应当在 +X 侧");
+  assert.ok(shoulderR.offset[0] < 0, "右肩应当在 -X 侧");
+
+  const shoulderWidth = Math.abs(shoulderL.offset[0]) * 2 + shoulderL.radius * 2;
+  const ratio = shoulderWidth / rig.height;
+  assert.ok(ratio > 0.2 && ratio < 0.34, `肩宽/身高 = ${ratio.toFixed(3)} 不合人体比例`);
+}
+
+/* 预设是一整套姿态:从默认站姿起算,不能被上一个预设或当前姿态污染。
+   (真机实测踩到过:先点 T 字再点行走,肩的 z=±90 会留下来,手臂一直横着。) */
+{
+  const fromStand = rig.applyPreset(rig.defaultAngles(), "walk");
+  const afterTpose = rig.applyPreset(rig.applyPreset(rig.defaultAngles(), "tpose"), "walk");
+  assert.deepEqual(afterTpose, fromStand, "先摆 T 字再套行走,结果必须与直接套行走一致");
+  assert.equal(afterTpose["shoulder.L"].z, 180, "肩的 rest 角度不该被上一个预设残留下来");
+  assert.equal(afterTpose["shoulder.R"].z, 180, "左右两侧都不该残留");
 }
 
 /* 旋转矩阵正交,局部 +Y 方向可判定 */

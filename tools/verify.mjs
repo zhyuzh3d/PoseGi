@@ -23,7 +23,7 @@ const sourceOnly = process.argv.includes("--source-only");
 /* 1. 清单 */
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "hermit.json"), "utf8"));
 assert.equal(manifest.schema, 2);
-assert.equal(manifest.happId, "io.github.zhyuzh3d.posegi");
+assert.equal(manifest.happId, "life.airen.posegi");
 assert.ok(Number.isInteger(manifest.version.code) && manifest.version.code > 0, "版本 code 必须是正整数");
 assert.match(manifest.version.name, /^\d+\.\d+\.\d+$/, "版本名必须是 x.y.z");
 assert.equal(manifest.entry, "index.html");

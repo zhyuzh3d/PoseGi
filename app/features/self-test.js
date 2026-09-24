@@ -33,8 +33,8 @@
     app.rig.joints.forEach(function (joint) {
       if (seen[joint.name]) problems.push("重名关节 " + joint.name);
       if (joint.parent && !seen[joint.parent]) problems.push(joint.name + " 的父关节 " + joint.parent + " 排在其后");
-      if (!(joint.length > 0)) problems.push(joint.name + " 的骨骼长度不是正数");
-      if (!(joint.radius > 0)) problems.push(joint.name + " 的半径不是正数");
+      if (!joint.pivot && !(joint.length > 0)) problems.push(joint.name + " 的骨骼长度不是正数");
+      if (!joint.pivot && !(joint.radius > 0)) problems.push(joint.name + " 的半径不是正数");
       seen[joint.name] = true;
     });
     var angles = app.rig.normalize(app.rig.applyPreset(app.rig.defaultAngles(), "walk"));

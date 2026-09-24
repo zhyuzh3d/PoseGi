@@ -19,7 +19,7 @@ Hermit 上的 3D 摆姿 happ:手动摆放 3D 角色的骨骼造型,再把渲染�
 
 ```
 index.html            入口;只放骨架与资源引用
-hermit.json           包清单(schema 2, happId io.github.zhyuzh3d.posegi)
+hermit.json           包清单(schema 2, happId life.airen.posegi)
 guid.md               给智能体插件读的短说明
 app/                  应用代码与静态资源
 styles/               样式
