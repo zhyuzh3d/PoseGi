@@ -38,6 +38,9 @@
       var action = target.dataset.menu;
       if (action === "models") app.components.settings.openModels();
       if (action === "preferences") app.components.settings.openPreferences();
+      if (action === "poses" || action === "results") {
+        app.components.ui.toast(app.i18n.text("这部分还没实现,当前是框架阶段", "Not implemented yet, this is still the framework stage"));
+      }
       if (action === "help") openHelp();
       if (action === "about") openAbout();
     });
