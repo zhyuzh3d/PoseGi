@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f5f7">
+  <title>PoseGi</title>
+  <link rel="icon" href="./app/assets/icon.webp">
+  <link rel="stylesheet" href="/__hermit/icons/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="./styles/tokens.css">
+  <link rel="stylesheet" href="./styles/base.css">
+  <link rel="stylesheet" href="./styles/viewport.css">
+  <link rel="stylesheet" href="./styles/components.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">P</span>
+        <strong>PoseGi</strong>
+        <small id="app-version"></small>
+      </div>
+      <button class="icon-button" id="open-menu" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="app-menu" data-zh="打开菜单" data-en="Open menu" data-i18n-attr="aria-label"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
+      <div class="app-menu" id="app-menu" hidden>
+        <button data-menu="poses"><i class="fa-solid fa-person" aria-hidden="true"></i><span data-zh="姿态库" data-en="Poses">姿态库</span></button>
+        <button data-menu="results"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-zh="作品库" data-en="Results">作品库</span></button>
+        <div class="menu-divider"></div>
+        <button data-menu="models"><i class="fa-solid fa-cubes" aria-hidden="true"></i><span data-zh="生图接口" data-en="Image service">生图接口</span></button>
+        <button data-menu="preferences"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span data-zh="软件设置" data-en="Preferences">软件设置</span></button>
+        <div class="menu-divider"></div>
+        <button data-menu="help"><i class="fa-solid fa-circle-question" aria-hidden="true"></i><span data-zh="使用说明" data-en="How it works">使用说明</span></button>
+        <button data-menu="about"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span data-zh="软件信息" data-en="About">软件信息</span></button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="stage-section" aria-label="3D viewport">
+        <div class="stage-frame" id="stage-frame">
+          <div class="stage-viewport" id="stage-viewport"></div>
+          <div class="stage-fallback" id="stage-fallback" hidden></div>
+        </div>
+      </section>
+
+      <section class="pose-section" aria-label="Pose">
+        <div class="section-head">
+          <span class="section-title" data-zh="造型" data-en="Pose">造型</span>
+          <span class="section-hint" id="pose-hint" data-zh="点选关节后在这里调整角度" data-en="Pick a joint, then adjust its angles here">点选关节后在这里调整角度</span>
+        </div>
+        <div class="pose-bar">
+          <button class="chip" data-pose="stand" data-zh="站姿" data-en="Stand">站姿</button>
+          <button class="chip" data-pose="tpose" data-zh="T 字" data-en="T pose">T 字</button>
+          <button class="chip" data-pose="walk" data-zh="行走" data-en="Walk">行走</button>
+          <button class="chip" data-pose="wave" data-zh="举手" data-en="Wave">举手</button>
+          <button class="chip" data-pose="sit" data-zh="坐下" data-en="Sit">坐下</button>
+          <button class="chip" id="pose-mirror" data-zh="镜像" data-en="Mirror">镜像</button>
+          <button class="chip" id="pose-reset" data-zh="复位" data-en="Reset">复位</button>
+        </div>
+        <div class="joint-panel" id="joint-panel"></div>
+      </section>
+
+      <section class="generate-section" aria-label="Generate">
+        <div class="prompt-row">
+          <span class="prompt-readonly" id="generation-prompt" role="text" tabindex="0" data-zh="画面描述:待实现" data-en="Image description: not implemented yet">画面描述:待实现</span>
+        </div>
+        <div class="generate-row">
+          <button class="button button-primary" id="generate" type="button" data-zh="生成" data-en="Generate">生成</button>
+          <button class="button button-secondary" id="open-gallery" type="button" data-zh="作品库" data-en="Results">作品库</button>
+        </div>
+      </section>
+
+      <section class="gallery-section" aria-label="Gallery" id="gallery-body" hidden></section>
+
+      <p class="status-line" id="status-line" role="status"></p>
+    </main>
+  </div>
+
+  <div class="modal-layer" id="modal-layer" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <section class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
+      <div class="sheet-handle"></div>
+      <header class="modal-header">
+        <div><span class="eyebrow" id="modal-eyebrow"></span><h2 id="modal-title"></h2></div>
+        <button class="icon-button" data-close-modal data-zh="关闭" data-en="Close" data-i18n-attr="aria-label"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      </header>
+      <div class="modal-content" id="modal-content"></div>
+      <footer class="modal-actions" id="modal-actions" hidden></footer>
+    </section>
+  </div>
+
+  <div class="modal-layer confirm-layer" id="confirm-layer" hidden>
+    <div class="modal-backdrop"></div>
+    <section class="modal-sheet centered" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" tabindex="-1">
+      <header class="modal-header"><h2 id="confirm-title"></h2></header>
+      <div class="modal-content">
+        <p id="confirm-message"></p>
+        <div class="button-row">
+          <button class="button button-secondary" id="confirm-cancel"></button>
+          <button class="button button-primary" id="confirm-ok"></button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+  <script src="./vendor/three/three.min.js"></script>
+  <script src="./vendor/three/OrbitControls.js"></script>
+  <script src="./app/core/namespace.js"></script>
+  <script src="./app/core/utils.js"></script>
+  <script src="./app/core/i18n.js"></script>
+  <script src="./app/core/runtime.js"></script>
+  <script src="./app/core/rig.js"></script>
+  <script src="./app/platform/hermit.js"></script>
+  <script src="./app/services/store.js"></script>
+  <script src="./app/services/providers.js"></script>
+  <script src="./app/services/image-engine.js"></script>
+  <script src="./app/components/ui.js"></script>
+  <script src="./app/components/viewport.js"></script>
+  <script src="./app/components/gallery.js"></script>
+  <script src="./app/components/settings.js"></script>
+  <script src="./app/features/poser.js"></script>
+  <script src="./app/features/editor.js"></script>
+  <script src="./app/features/self-test.js"></script>
+  <script src="./app/app.js"></script>
+</body>
+</html>

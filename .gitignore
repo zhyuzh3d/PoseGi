@@ -1,0 +1,16 @@
+# 运行包之外的东西
+tools/__pycache__/
+tests/__pycache__/
+release/
+
+# 本机开发残留
+.DS_Store
+*.log
+*.pid
+.server-state/
+
+# 设备开发凭据(地址随手机变化,不提交)
+.hermit-dev.json
+
+# 本工作区的工作台数据,不属于仓库内容
+.workbuddy/

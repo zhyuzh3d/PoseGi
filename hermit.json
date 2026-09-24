@@ -1,0 +1,17 @@
+{
+  "schema": 2,
+  "happId": "io.github.zhyuzh3d.posegi",
+  "name": "PoseGi",
+  "author": "zhyuzh",
+  "version": {
+    "code": 1,
+    "name": "0.1.0"
+  },
+  "entry": "index.html",
+  "routing": "hash",
+  "icon": "app/assets/icon.webp",
+  "display": {
+    "orientation": "portrait",
+    "keyboard": "resize"
+  }
+}

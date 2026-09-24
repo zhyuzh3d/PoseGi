@@ -1,0 +1,84 @@
+/* 基础布局:外壳、顶栏、分区、状态行
+   注意:设备 WebView 不支持 flex 的 gap,行内间距一律用相邻兄弟 margin。 */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
+body { padding-bottom: calc(12px + var(--safe-bottom)); }
+
+button { font: inherit; color: inherit; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.app-shell { display: block; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center;
+  padding: calc(8px + var(--safe-top)) 12px 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+
+.brand-mark {
+  display: grid; place-items: center;
+  width: 24px; height: 24px; margin-right: 8px;
+  border-radius: 7px; background: var(--accent); color: #fff;
+  font-size: 13px; font-weight: 700;
+}
+
+.brand strong { font-size: 15px; }
+.brand small { margin-left: 6px; color: var(--muted); font-size: 11px; }
+
+.app-menu {
+  position: absolute; right: 10px; top: calc(44px + var(--safe-top));
+  min-width: 168px; padding: 6px;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+}
+
+.app-menu button {
+  display: flex; align-items: center;
+  width: 100%; padding: 9px 10px;
+  border: 0; border-radius: var(--radius-sm);
+  background: transparent; text-align: left;
+}
+
+.app-menu button + button { margin-top: 2px; }
+.app-menu button i { width: 18px; color: var(--muted); }
+.app-menu button span { flex: 1 1 auto; }
+.menu-divider { height: 1px; margin: 6px 4px; background: var(--line); }
+
+.workspace { padding: 12px; }
+
+.section-head { display: flex; align-items: baseline; margin-bottom: 8px; }
+.section-title { font-size: 13px; font-weight: 600; }
+.section-hint { margin-left: 8px; color: var(--muted); font-size: 11px; }
+
+.status-line {
+  margin: 12px 0 0 0; min-height: 18px;
+  color: var(--muted); font-size: 11.5px;
+}
+
+@media (max-width:520px) {
+  .workspace { padding: 10px; }
+  .brand small { display: none; }
+}
