@@ -1,4 +1,5 @@
-/* 基础布局:外壳、顶栏、分区、状态行
+/* 基础布局:外壳、顶栏、全屏舞台
+   结构:顶栏(定高)+ 舞台(吃掉剩下的全部高度)。
    注意:设备 WebView 不支持 flex 的 gap,行内间距一律用相邻兄弟 margin。 */
 
 * { box-sizing: border-box; }
@@ -6,16 +7,15 @@
 html, body {
   margin: 0;
   padding: 0;
+  height: 100%;
   background: var(--paper);
   color: var(--ink);
   font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
-  overflow-x: hidden;
+  overflow: hidden;
 }
-
-body { padding-bottom: calc(12px + var(--safe-bottom)); }
 
 button { font: inherit; color: inherit; }
 
@@ -24,14 +24,44 @@ button { font: inherit; color: inherit; }
   padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-.app-shell { display: block; }
+/* 外壳撑满一屏:顶栏定高,舞台 flex 吃掉其余高度,于是 3D 场景除顶栏外占满屏幕 */
+.app-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  height: 100dvh;
+}
 
+/* 顶栏 = 一条浮在 3D 场景上的毛玻璃卡片。
+ *
+ * 为什么用 absolute 而不是普通流布局:毛玻璃要有东西可"糊"。
+ * 原来顶栏是不透明的实色块、且占了布局高度,场景被顶到它下面 ——
+ * 那时给她任何模糊都只是糊在纯色背景上,什么也看不见。
+ * 改成浮层之后场景铺满整屏,卡片背后就是渲染出来的画面,模糊才成立。
+ * 代价是顶栏区域压在场景上,所以取景时上方余量要按卡片高度留(refreshCamera 里 +0.26)。
+ *
+ * pointer-events:外层 none、卡片 auto —— 卡片左右那点透明边距不该挡住手势,
+ * 拖空白转视角的起点常常就落在那儿。 */
 .topbar {
-  position: sticky; top: 0; z-index: 40;
+  position: absolute; left: 0; right: 0; top: 0; z-index: 40;
+  padding: calc(8px + var(--safe-top)) 10px 0 10px;
+  background: transparent; border-bottom: 0;
+  pointer-events: none;
+}
+
+.topbar-card {
   display: flex; align-items: center;
-  padding: calc(8px + var(--safe-top)) 12px 8px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  padding: 5px 6px 5px 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  /* -webkit- 前缀在前:老 WebView 只认前缀版;两条都写,谁支持谁生效。
+     不支持 backdrop-filter 的设备退回 --glass 的纯半透明底,文字照样读得清。 */
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  pointer-events: auto;
 }
 
 .brand { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
@@ -47,12 +77,14 @@ button { font: inherit; color: inherit; }
 .brand small { margin-left: 6px; color: var(--muted); font-size: 11px; }
 
 .app-menu {
-  position: absolute; right: 10px; top: calc(44px + var(--safe-top));
+  /* 位置跟着卡片算:卡片底 = 顶栏上内边距 8 + 卡片高 46,再留 6 像素间隙 */
+  position: absolute; right: 10px; top: calc(60px + var(--safe-top));
   min-width: 168px; padding: 6px;
   background: var(--surface-strong);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow);
+  pointer-events: auto;
 }
 
 .app-menu button {
@@ -67,18 +99,26 @@ button { font: inherit; color: inherit; }
 .app-menu button span { flex: 1 1 auto; }
 .menu-divider { height: 1px; margin: 6px 4px; background: var(--line); }
 
-.workspace { padding: 12px; }
+/* 作品库的挂载点:平时不占位,打开弹层时才被搬进去 */
+.gallery-section { display: none; }
+.gallery-section.is-mounted { display: block; }
 
-.section-head { display: flex; align-items: baseline; margin-bottom: 8px; }
-.section-title { font-size: 13px; font-weight: 600; }
-.section-hint { margin-left: 8px; color: var(--muted); font-size: 11px; }
+/* 顶栏不藏版本号。原来这里有一条 `@media (max-width:520px) { .brand small { display:none } }`,
+   而手机宽度是 384 —— 于是**所有手机上都看不到版本号**(真机截图里顶栏只有 "P PoseGi")。
+   品牌区加一行版本号只占 50 多像素,顶栏放得下,不再按宽度藏。 */
+.brand small { white-space: nowrap; }
 
-.status-line {
-  margin: 12px 0 0 0; min-height: 18px;
-  color: var(--muted); font-size: 11.5px;
-}
+/* 竖屏兜底提示。显隐只由媒体查询决定:
+   横屏时才 display:flex —— 不要用 hidden 属性,作者样式的 display 会盖过 [hidden]。 */
+.orientation-guard { display: none; }
 
-@media (max-width:520px) {
-  .workspace { padding: 10px; }
-  .brand small { display: none; }
+@media (orientation: landscape) {
+  .orientation-guard {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    position: fixed; z-index: 200; left: 0; right: 0; top: 0; bottom: 0;
+    padding: 24px; text-align: center;
+    background: var(--paper); color: var(--muted); font-size: 13px;
+  }
+  .orientation-guard i { font-size: 28px; margin-bottom: 10px; }
+  .orientation-guard p { margin: 0; }
 }

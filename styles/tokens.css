@@ -4,6 +4,11 @@
   --line:#e4e7ee; --line-strong:#ccd2dd; --accent:#5b5bd6; --accent-deep:#4444b8; --accent-soft:#ececfb;
   --violet:#705ed7; --violet-soft:#efecfc; --green:#21836a; --danger:#c84353;
   --shadow:0 10px 30px rgba(35,39,52,.07);
+  /* 毛玻璃卡片(顶栏):半透明底 + 背后模糊 + 一道亮边。
+     亮边不是装饰:模糊会让边界糊掉,一条 1px 的淡边才能把卡片从场景里"切"出来。 */
+  --glass:rgba(255,255,255,.68); --glass-line:rgba(255,255,255,.75);
+  --glass-shadow:0 10px 26px rgba(35,39,52,.16);
+  --glass-blur:16px;
   --radius-sm:8px; --radius-md:12px; --radius-lg:18px;
   --safe-top:env(safe-area-inset-top,0px); --safe-bottom:env(safe-area-inset-bottom,0px);
 }
@@ -13,4 +18,10 @@
   --line:#363b45; --line-strong:#505969; --accent:#9a9af5; --accent-deep:#bdbdff; --accent-soft:#2c2c4a;
   --violet:#a496f3; --violet-soft:#342d50; --green:#70cfb2; --danger:#ff8792;
   --shadow:0 10px 30px rgba(0,0,0,.22);
+  /* 深色下的毛玻璃不能"填一个比背景稍亮的深色" —— 实测那样卡片和场景是同一个颜色
+     (卡片 (22,24,29) vs 场景 (23,26,31)),看上去不像一张卡片。
+     深色材料要用**白色的低透明度覆盖**:0.12 的白压在 #171a1f 上出来是 (51,54,59),
+     一眼能看出层次,文字(亮色)对比度也够。 */
+  --glass:rgba(255,255,255,.12); --glass-line:rgba(255,255,255,.20);
+  --glass-shadow:0 12px 30px rgba(0,0,0,.55);
 }

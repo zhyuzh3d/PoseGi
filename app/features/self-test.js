@@ -8,6 +8,8 @@
  *   rig        骨骼数据是否自洽(父关节先于子关节、角度在界内)
  *   three      内置 three.js 是否加载
  *   webgl      设备 WebGL 是否可用(决定 3D 视口能否显示)
+ *   stageHit   画布是否真的能被点中(有透明层盖住时触摸会被吃掉)
+ *   faceMask   正反着色的 shader 注入锚点是否还在、注入是否真的落上了
  *   bridge     Hermit Bridge 是否就绪(开发模式同步时应当为真)
  */
 (function (app) {
@@ -15,7 +17,7 @@
 
   function checkNamespace() {
     var missing = [];
-    [["utils", app.utils], ["i18n", app.i18n], ["runtime", app.runtime], ["rig", app.rig],
+    [["utils", app.utils], ["i18n", app.i18n], ["runtime", app.runtime], ["rig", app.rig], ["ik", app.ik],
       ["platform.hermit", app.platform.hermit], ["services.store", app.services.store],
       ["services.providers", app.services.providers], ["services.imageEngine", app.services.imageEngine],
       ["components.ui", app.components.ui], ["components.viewport", app.components.viewport],
@@ -60,6 +62,76 @@
     };
   }
 
+  /* "画布必须真的能被点中" —— 这一条守的是一整类 bug。
+     只要有任何一个透明的全屏元素压在舞台上面(典型是"忘了处理 hidden 属性"的提示层),
+     画布就收不到任何触摸:表现是"整个 3D 区域完全点不动",而且不报错、不白屏、截图也看不出来。
+     真机上踩过一次:`.stage-fallback` 的 `display:grid` 盖过了浏览器默认的 `[hidden]{display:none}`,
+     于是那个空提示层一直铺在画布上,把每一次触摸都吃掉(底部 dock 在舞台之外,照样能点,
+     所以现象是"只有按钮有反应")。只有 elementFromPoint 能发现,测试点避开底部按钮条与提示行。 */
+  function checkStageHit() {
+    var canvas = document.querySelector("#stage-viewport canvas");
+    if (!canvas) return { ok: false, detail: "舞台上没有画布" };
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return { ok: false, detail: "画布尺寸为 0" };
+    var probes = [[0.5, 0.2], [0.5, 0.45], [0.5, 0.7], [0.2, 0.4], [0.8, 0.4]];
+    var blocked = [];
+    probes.forEach(function (pair) {
+      var x = Math.round(rect.left + rect.width * pair[0]);
+      var y = Math.round(rect.top + rect.height * pair[1]);
+      var element = document.elementFromPoint(x, y);
+      if (element !== canvas && (!element || !canvas.contains(element))) {
+        blocked.push(pair[0] + "," + pair[1] + " → " + (element ? element.tagName.toLowerCase() + (element.id ? "#" + element.id : "") : "null"));
+      }
+    });
+    return {
+      ok: blocked.length === 0,
+      detail: blocked.length === 0
+        ? "画布整块可点(" + probes.length + " 个采样点都直接命中 canvas)"
+        : "有元素盖在画布上,触摸会被吃掉:" + blocked.join(";")
+    };
+  }
+
+  /* 正反着色(viewport 的 shader 注入)为什么值得单列一条:
+     它的注入点**全靠字符串匹配** —— three.js 里 chunk 一改名,replace 找不到锚点就
+     原样返回:不报错、照样编译通过、只是颜色一点没变。这种静默失效没有任何报错可抓,
+     只能自己守。所以查三件事:
+       ① 两个锚点在 THREE.ShaderLib.physical 里还在不在;
+       ② 编译过的源码里有没有我们那两行(没渲染过时查不到,那时不算失败);
+       ③ 开关拨得动吗 —— 拨完立刻还原,不留副作用。
+     顺带把 dir(角色朝向,世界空间)报出来:正面该是 +Z 附近。 */
+  function checkFaceMask() {
+    var viewport = app.components.viewport;
+    var problems = [];
+    var detail = "";
+    var info = typeof viewport.maskInfo === "function" ? viewport.maskInfo() : null;
+    var physical = window.THREE && window.THREE.ShaderLib ? window.THREE.ShaderLib.physical : null;
+
+    if (!physical) {
+      problems.push("拿不到 THREE.ShaderLib.physical");
+    } else {
+      if (physical.vertexShader.indexOf("#include <defaultnormal_vertex>") < 0) problems.push("顶点锚点 defaultnormal_vertex 不在了");
+      if (physical.fragmentShader.indexOf("#include <encodings_fragment>") < 0) problems.push("片元锚点 encodings_fragment 不在了(three 是不是升到 r152+)");
+    }
+
+    if (!info) {
+      problems.push("视口没有暴露正反着色");
+    } else {
+      if (!info.attached) problems.push("没有材质挂上正反着色");
+      if (info.compiled) {
+        if (info.vertex.indexOf("vMaskNormal = normalize") < 0) problems.push("顶点注入没落上");
+        if (info.fragment.indexOf("uMaskFront, step(") < 0) problems.push("片元注入没落上");
+      }
+      var before = viewport.frontBackMask();
+      if (viewport.setFrontBackMask(!before) === before) problems.push("正反着色开关拨不动");
+      viewport.setFrontBackMask(before);
+      detail = info.attached + " 处材质,混色 " + Number(info.mix).toFixed(2)
+        + ",朝向 " + info.dir.map(function (v) { return v.toFixed(2); }).join(",")
+        + (info.compiled ? ",注入已编译" : ",尚未渲染故未查注入");
+    }
+
+    return { ok: problems.length === 0, detail: problems.length ? problems.join(";") : detail };
+  }
+
   async function checkBridge() {
     await app.platform.hermit.awaitReady(1200);
     var ready = app.platform.hermit.available();
@@ -72,6 +144,8 @@
     report.checks.rig = checkRig();
     report.checks.three = checkThree();
     report.checks.webgl = checkWebgl();
+    report.checks.stageHit = checkStageHit();
+    report.checks.faceMask = checkFaceMask();
     report.checks.bridge = await checkBridge();
     report.checks.engine = {
       ok: true,

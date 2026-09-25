@@ -9,7 +9,7 @@
   var app = global.posegi = global.posegi || {};
   var listeners = {};
 
-  app.version = "0.1.0";
+  app.version = "0.0.5";
 
   app.events = {
     on: function (name, listener) {
@@ -30,6 +30,7 @@
   app.state = {
     theme: "light",
     selectedJoint: "",
+    selectedPart: "bone",
     poseName: "",
     dirty: false,
     view: { azimuth: 0, elevation: 0, distance: 3.2, targetY: 0.95 },
@@ -50,7 +51,9 @@
       width: 768,
       height: 1024,
       background: "#f2f3f5",
-      character: "builtin-humanoid",
+      /* 默认造型:宜家人偶。取值必须是 app/core/models.js 里登记过的 id,
+         不在册的(旧版本存下来的)一律退回这一个(见 features/figure.js)。 */
+      character: "ikea",
       showGrid: true,
       showBones: true
     },

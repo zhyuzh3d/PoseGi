@@ -14,13 +14,18 @@
 </head>
 <body>
   <div class="app-shell">
+    <!-- 顶栏是一条**浮在 3D 场景上的毛玻璃卡片**:横向充满、圆角、带阴影。
+         场景因此铺满整屏(卡片之外的顶栏区域是透明的,点得穿)。
+         取景时上方留出的余量按卡片高度算过,人物头部不会被卡片压住。 -->
     <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">P</span>
-        <strong>PoseGi</strong>
-        <small id="app-version"></small>
+      <div class="topbar-card">
+        <div class="brand">
+          <span class="brand-mark">P</span>
+          <strong>PoseGi</strong>
+          <small id="app-version"></small>
+        </div>
+        <button class="icon-button" id="open-menu" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="app-menu" data-zh="打开菜单" data-en="Open menu" data-i18n-attr="aria-label"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
       </div>
-      <button class="icon-button" id="open-menu" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="app-menu" data-zh="打开菜单" data-en="Open menu" data-i18n-attr="aria-label"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
       <div class="app-menu" id="app-menu" hidden>
         <button data-menu="poses"><i class="fa-solid fa-person" aria-hidden="true"></i><span data-zh="姿态库" data-en="Poses">姿态库</span></button>
         <button data-menu="results"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-zh="作品库" data-en="Results">作品库</span></button>
@@ -33,47 +38,51 @@
       </div>
     </header>
 
-    <main class="workspace">
-      <section class="stage-section" aria-label="3D viewport">
-        <div class="stage-frame" id="stage-frame">
-          <div class="stage-viewport" id="stage-viewport"></div>
-          <div class="stage-fallback" id="stage-fallback" hidden></div>
-        </div>
-      </section>
-
-      <section class="pose-section" aria-label="Pose">
-        <div class="section-head">
-          <span class="section-title" data-zh="造型" data-en="Pose">造型</span>
-          <span class="section-hint" id="pose-hint" data-zh="拖动关节直接摆姿势" data-en="Drag a joint to pose it">拖动关节直接摆姿势</span>
-        </div>
-        <div class="pose-bar">
-          <button class="chip" data-pose="stand" data-zh="站姿" data-en="Stand">站姿</button>
-          <button class="chip" data-pose="tpose" data-zh="T 字" data-en="T pose">T 字</button>
-          <button class="chip" data-pose="walk" data-zh="行走" data-en="Walk">行走</button>
-          <button class="chip" data-pose="wave" data-zh="举手" data-en="Wave">举手</button>
-          <button class="chip" data-pose="sit" data-zh="坐下" data-en="Sit">坐下</button>
-          <button class="chip" id="pose-mirror" data-zh="镜像" data-en="Mirror">镜像</button>
-          <button class="chip" id="pose-reset" data-zh="复位" data-en="Reset">复位</button>
-          <button class="chip" id="pose-move" data-zh="搬运" data-en="Move">搬运</button>
-          <button class="chip" id="pose-fit" data-zh="取景" data-en="Fit">取景</button>
-        </div>
-        <div class="joint-panel" id="joint-panel"></div>
-      </section>
-
-      <section class="generate-section" aria-label="Generate">
-        <div class="prompt-row">
-          <span class="prompt-readonly" id="generation-prompt" role="text" tabindex="0" data-zh="画面描述:待实现" data-en="Image description: not implemented yet">画面描述:待实现</span>
-        </div>
-        <div class="generate-row">
-          <button class="button button-primary" id="generate" type="button" data-zh="生成" data-en="Generate">生成</button>
-          <button class="button button-secondary" id="open-gallery" type="button" data-zh="作品库" data-en="Results">作品库</button>
-        </div>
-      </section>
-
-      <section class="gallery-section" aria-label="Gallery" id="gallery-body" hidden></section>
-
-      <p class="status-line" id="status-line" role="status"></p>
+    <!-- 3D 场景占满顶栏以外的全部屏幕。工具一律收进底部 sheet,点按钮才出现。 -->
+    <main class="stage" id="stage">
+      <div class="stage-viewport" id="stage-viewport"></div>
+      <div class="stage-fallback" id="stage-fallback" hidden></div>
+      <p class="stage-caption" id="status-line" role="status"></p>
     </main>
+
+    <!-- 自转滑杆:选中一个可转关节时,在按钮条上方浮出一行。
+         为什么它必须是独立控件:自转(绕骨轴拧)是唯一"拖拽永远碰不到"的自由度 ——
+         转轴就是骨头自己的轴,而骨的末端就在这根轴上,转它在屏幕上几乎不动
+         (实测自转通道只有最强通道的 1~5%,而视口解算的丢弃线是 55%,它在第一道过滤里就被扔掉)。
+         行程由该关节自己的 limit.y 决定(见 rig.jointRange),两端到头就是解剖边界,
+         写入仍然走 poser.setJointAngle → rig.clampJoint 这一个收口点。
+
+         版式:标题行只放关节名(它是"在拧哪儿"的答案,所以最显眼;轴名"自转"退成小字),
+         范围数字下移到滑杆两侧 —— 左边是窗口下限,右边是"当前值/上限"
+         (上限同时充当刻度的右端标注,不重复画一次)。 -->
+    <div class="twist-bar" id="twist-bar" hidden>
+      <div class="twist-head">
+        <span class="twist-joint" id="twist-name"></span>
+        <span class="twist-axis" id="twist-axis"></span>
+      </div>
+      <div class="twist-row">
+        <span class="twist-bound" id="twist-min"></span>
+        <input type="range" id="twist-range" step="1">
+        <output class="twist-read" id="twist-value"></output>
+      </div>
+    </div>
+
+    <div class="dock" id="dock">
+      <button class="dock-button" id="open-poses" type="button"><i class="fa-solid fa-person" aria-hidden="true"></i><span data-zh="姿态" data-en="Pose">姿态</span></button>
+      <button class="dock-button" id="open-joint" type="button"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span data-zh="关节" data-en="Joint">关节</span></button>
+      <button class="dock-button" id="toggle-move" type="button"><i class="fa-solid fa-hand" aria-hidden="true"></i><span data-zh="搬运" data-en="Move">搬运</span></button>
+      <button class="dock-button" id="frame-camera" type="button"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i><span data-zh="取景" data-en="Fit">取景</span></button>
+      <button class="dock-button" id="toggle-mask" type="button" aria-pressed="false"><i class="fa-solid fa-adjust" aria-hidden="true"></i><span data-zh="正反" data-en="Faces">正反</span></button>
+      <button class="dock-button dock-button-primary" id="open-generate" type="button"><i class="fa-solid fa-image" aria-hidden="true"></i><span data-zh="生成" data-en="Generate">生成</span></button>
+    </div>
+  </div>
+
+  <!-- 竖屏兜底:清单里的 display.orientation=portrait 是正门,这层只在"宿主没锁住、
+       又真的横过来了"的时候出现。刻意不用 hidden 属性控制显隐 —— 作者样式里的 display
+       会盖过 [hidden],那正是 stage-fallback 踩过的坑,这里用媒体查询开关。 -->
+  <div class="orientation-guard" id="orientation-guard">
+    <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+    <p data-zh="请把手机竖过来使用 PoseGi" data-en="Please rotate back to portrait to pose">请把手机竖过来使用 PoseGi</p>
   </div>
 
   <div class="modal-layer" id="modal-layer" hidden>
@@ -103,6 +112,9 @@
     </section>
   </div>
 
+  <!-- 作品库的挂载点:平时隐身,打开 sheet 时被搬进弹层里 -->
+  <div class="gallery-section" id="gallery-body"></div>
+
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
   <script src="./vendor/three/three.min.js"></script>
@@ -111,7 +123,10 @@
   <script src="./app/core/utils.js"></script>
   <script src="./app/core/i18n.js"></script>
   <script src="./app/core/runtime.js"></script>
+  <script src="./app/core/models.js"></script>
+  <script src="./app/assets/models/ikea.js"></script>
   <script src="./app/core/rig.js"></script>
+  <script src="./app/core/ik.js"></script>
   <script src="./app/platform/hermit.js"></script>
   <script src="./app/services/store.js"></script>
   <script src="./app/services/providers.js"></script>
@@ -121,6 +136,7 @@
   <script src="./app/components/gallery.js"></script>
   <script src="./app/components/settings.js"></script>
   <script src="./app/features/poser.js"></script>
+  <script src="./app/features/figure.js"></script>
   <script src="./app/features/editor.js"></script>
   <script src="./app/features/self-test.js"></script>
   <script src="./app/app.js"></script>

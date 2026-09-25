@@ -33,8 +33,9 @@
     var joint = app.rig.byName(name);
     if (!joint) throw new Error("未知关节:" + String(name));
     if (app.rig.angleKeys.indexOf(key) < 0) throw new Error("未知旋转轴:" + String(key));
-    current()[name][key] = app.utils.clamp(Number(value), app.rig.limits.min, app.rig.limits.max);
-    current()[name][key] = app.utils.normalizeAngle(current()[name][key]);
+    /* 收口交给 rig.clampJoint:它认得每个关节自己的可转范围(手腕 ±80、脚踝 -50..25),
+       而且记的是"相对静止姿态"的增量 —— rest 来自模型,可能是任意值。 */
+    current()[name][key] = app.rig.clampJoint(name, key, value);
     changed(name, "slider");
     return current()[name][key];
   }
@@ -46,18 +47,37 @@
     var applied = {};
     app.rig.angleKeys.forEach(function (key) {
       if (!patch || patch[key] === undefined || patch[key] === null) return;
-      current()[name][key] = app.utils.normalizeAngle(
-        app.utils.clamp(Number(patch[key]), app.rig.limits.min, app.rig.limits.max)
-      );
+      current()[name][key] = app.rig.clampJoint(name, key, patch[key]);
       applied[key] = current()[name][key];
     });
     if (Object.keys(applied).length) changed(name, "drag");
     return applied;
   }
 
-  function selectJoint(name) {
+  /* IK 一次会改一整条链上的若干关节(肩+上臂+前臂),同样一次事件通知完 */
+  function patchJoints(map, source) {
+    var applied = {};
+    Object.keys(map || {}).forEach(function (name) {
+      if (!app.rig.byName(name)) return;
+      var value = map[name] || {};
+      var angle = current()[name];
+      var touched = false;
+      app.rig.angleKeys.forEach(function (key) {
+        if (value[key] === undefined || value[key] === null) return;
+        angle[key] = app.rig.clampJoint(name, key, value[key]);
+        touched = true;
+      });
+      if (touched) applied[name] = angle;
+    });
+    if (Object.keys(applied).length) changed("", source || "ik");
+    return applied;
+  }
+
+  /* 选中哪个关节、以及选中的是它的"连接杆"还是"节点" —— 后者决定拖动是旋转还是移动 */
+  function selectJoint(name, part) {
     app.state.selectedJoint = name && app.rig.byName(name) ? String(name) : "";
-    app.events.emit("pose:selected", { joint: app.state.selectedJoint });
+    app.state.selectedPart = part === "node" ? "node" : "bone";
+    app.events.emit("pose:selected", { joint: app.state.selectedJoint, part: app.state.selectedPart });
     return app.state.selectedJoint;
   }
 
@@ -74,10 +94,13 @@
     return angles;
   }
 
-  function resetNow() {
+  /* 回到默认站姿。silent 用于"换人物造型"这类要连骨架一起换的场景:
+     中间那一次重绘是旧网格配新骨架,虽然只有一帧,但会闪一下;
+     静默复位之后由调用方统一重画一次。 */
+  function resetNow(silent) {
     angles = app.rig.defaultAngles();
     app.state.poseName = "stand";
-    changed("", "reset");
+    if (silent !== true) changed("", "reset");
     return angles;
   }
 
@@ -105,6 +128,7 @@
     angles: current,
     setJointAngle: setJointAngle,
     patchJoint: patchJoint,
+    patchJoints: patchJoints,
     selectJoint: selectJoint,
     applyPreset: applyPreset,
     mirror: mirrorNow,

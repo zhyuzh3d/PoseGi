@@ -1,70 +1,130 @@
-/* 3D 视口:舞台、画布挂载点、渲染参数行、WebGL 不可用时的提示 */
+/* 3D 视口:全屏舞台、画布挂载点、浮动按钮条、关节滑杆、WebGL 不可用时的提示 */
 
-.stage-section { margin-bottom: 14px; }
-
-.stage-frame {
+.stage {
   position: relative;
-  width: 100%;
-  height: 58vh;
-  min-height: 260px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
+  background: var(--paper);
 }
 
 .stage-viewport { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }
 
 .stage-viewport canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
+/* "WebGL 不可用" 的提示层:铺满舞台居中显示。
+   两条必须写明的规则,少一条都会静默坏掉:
+   1. [hidden] 必须显式写 display:none。元素上写了 hidden 属性,
+      但作者样式里的 display:grid 会盖过浏览器默认的 `[hidden]{display:none}` ——
+      于是这个透明层一直铺在画布上面,把每一次触摸都吃掉,
+      表现是"整个 3D 区域完全点不动",而底部 dock 在舞台之外照样能点(真机踩过)。
+   2. 它只是文字提示,不吃指针事件;万一将来布局再变,也别再挡路。 */
 .stage-fallback {
   position: absolute; left: 0; right: 0; top: 0; bottom: 0;
   display: grid; place-items: center;
   padding: 20px; text-align: center;
   color: var(--muted); font-size: 12.5px;
+  pointer-events: none;
 }
 
-.pose-bar { display: flex; flex-wrap: wrap; }
-.pose-bar .chip { margin: 0 6px 6px 0; }
+.stage-fallback[hidden] { display: none; }
 
-.joint-panel {
-  min-height: 44px;
-  padding: 10px;
-  background: var(--surface);
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--radius-md);
+/* 状态行就挂在场景底部、按钮条之上:不占位、不吃触摸 */
+.stage-caption {
+  position: absolute;
+  left: 14px; right: 14px;
+  bottom: calc(84px + var(--safe-bottom));
+  margin: 0; min-height: 16px;
+  text-align: center;
   color: var(--muted); font-size: 11.5px;
+  pointer-events: none;
 }
+
+/* 自转滑杆出现时把状态行抬到它上面 —— 两者都在按钮条上方那一条带子里,
+   不抬就叠在同一个位置(而状态行此刻正好在讲"拖动绕此关节旋转",被盖住最不该)。 */
+body.has-twist .stage-caption { bottom: calc(140px + var(--safe-bottom)); }
+
+/* 自转滑杆:一行,浮在按钮条之上,只在选中可转关节时出现。
+   为什么用 fixed 浮层而不是布局里的一行:舞台要"除顶栏外占满屏幕"(有 stage() 探针在量),
+   加进流里会把 3D 区域压掉一截。材质与顶栏同一套毛玻璃 —— 它同样压在场景上。
+   宽度取屏幕的 80%(左右各留 10%),不贴边 —— 满宽时它像一条系统底栏,太抢戏。 */
+.twist-bar {
+  position: fixed; z-index: 62;
+  left: 10%; right: 10%;
+  bottom: calc(74px + var(--safe-bottom));
+  padding: 8px 12px 6px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-md);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+}
+
+/* 元素上写了 hidden 属性时,作者样式里的 display 会盖过浏览器默认的 [hidden]{display:none} ——
+   提示层曾经因此一直铺在画布上吃掉全部触摸(真机踩过)。所以这里显式写一条。 */
+.twist-bar[hidden] { display: none; }
+
+/* 标题行:关节名最大最亮(它回答"正在拧哪儿"),轴名退成小字。
+   两者字号与明度都不同,一眼能分出哪是关节、哪是轴。 */
+.twist-head { display: flex; align-items: baseline; margin-bottom: 4px; }
+.twist-joint { flex: 1 1 auto; font-size: 13px; font-weight: 600; color: var(--ink); }
+.twist-axis { flex: 0 0 auto; font-size: 10.5px; letter-spacing: .04em; color: var(--muted); }
+
+/* 滑杆行:左边是窗口下限,右边是"当前值/上限"。
+   两侧都给固定宽度:数字从 0° 变成 -45° 时,滑杆本身不该跟着抖。
+   input 的 min-width:0 是必需的 —— 老 WebView 里 range 有固有最小宽度,
+   不给它就能把两侧的标注挤出面板。 */
+.twist-row { display: flex; align-items: center; }
+.twist-bound { flex: 0 0 38px; text-align: left; font-size: 10.5px; color: var(--muted); }
+.twist-row input[type="range"] { flex: 1 1 auto; min-width: 0; margin: 0; accent-color: var(--accent); }
+.twist-read { flex: 0 0 auto; min-width: 62px; text-align: right; font-size: 11.5px; color: var(--ink); }
+
+/* 常驻的只有这一排按钮;其余工具都在底部 sheet 里,点按钮才出现 */
+.dock {
+  position: fixed; z-index: 60;
+  left: 0; right: 0;
+  bottom: calc(10px + var(--safe-bottom));
+  display: flex; justify-content: center; align-items: flex-end;
+  padding: 0 10px;
+  pointer-events: none;
+}
+
+.dock > * { pointer-events: auto; }
+
+.dock-button {
+  display: grid; place-items: center;
+  min-width: 56px; padding: 6px 9px;
+  border: 1px solid var(--line-strong); border-radius: 16px;
+  background: var(--surface); color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 11px;
+}
+
+.dock-button + .dock-button { margin-left: 6px; }
+.dock-button i { margin-bottom: 2px; font-size: 15px; }
+.dock-button span { white-space: nowrap; }
+.dock-button.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dock-button.is-on i { color: #fff; }
+.dock-button-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dock-button-primary i { color: #fff; }
+
+/* 关节面板:住在底部 sheet 里,选中谁就只显示谁的三条通道 */
+.joint-panel { color: var(--ink); font-size: 12px; }
+
+.joint-head { display: flex; align-items: baseline; margin-bottom: 10px; }
+.joint-head strong { font-size: 14px; }
+.joint-head code { margin-left: 6px; font-size: 10.5px; color: var(--muted); }
 
 .axis-row { display: flex; align-items: center; }
-.axis-row + .axis-row { margin-top: 6px; }
-.axis-row label { flex: 0 0 58px; font-size: 11px; color: var(--muted); }
-.axis-row input[type="range"] { flex: 1 1 auto; }
-.axis-row output { flex: 0 0 46px; text-align: right; font-size: 11px; }
+.axis-row + .axis-row { margin-top: 8px; }
+.axis-row label { flex: 0 0 44px; color: var(--muted); font-size: 11.5px; }
+.axis-row input[type="range"] { flex: 1 1 auto; margin: 0; accent-color: var(--accent); }
+.axis-row output { flex: 0 0 48px; text-align: right; font-size: 11.5px; }
 
-.joint-panel.is-active { border-style: solid; color: var(--ink); }
+.joint-empty { color: var(--muted); font-size: 12.5px; }
 
-.joint-head { display: flex; align-items: baseline; margin-bottom: 8px; }
-.joint-head strong { font-size: 12.5px; }
-.joint-head code { margin-left: 6px; font-size: 10.5px; color: var(--muted); }
-.joint-head .joint-close {
-  margin-left: auto;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
-
-.joint-empty { font-size: 11.5px; }
-
-.chip.is-on {
-  color: #ffffff;
-  background: var(--accent, #2f6bff);
-  border-color: var(--accent, #2f6bff);
-}
-
-@media (max-width:520px) {
-  .stage-frame { height: 52vh; }
+@media (max-width:400px) {
+  .dock-button { min-width: 52px; padding: 6px 7px; }
 }

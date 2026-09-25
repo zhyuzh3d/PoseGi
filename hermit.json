@@ -5,7 +5,7 @@
   "author": "zhyuzh",
   "version": {
     "code": 1,
-    "name": "0.1.0"
+    "name": "0.0.5"
   },
   "entry": "index.html",
   "routing": "hash",
