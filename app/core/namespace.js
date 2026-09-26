@@ -12,7 +12,7 @@
   /* 与 hermit.json 的 version.name 必须一致(tests/rig.test.mjs 守着)。
      上一轮发版只改了 hermit.json(code 3 / 0.1.1),这里漏了 —— 于是界面上
      顶着「v0.1.0」而装上去的包里写着 0.1.1。以 hermit.json 为准,这里跟上。 */
-  app.version = "0.1.2";
+  app.version = "0.1.3";
 
   /* 主题锁:本应用不做主题切换(设置里没有这一项),一律深色。
      2026-09-25 用户决定 —— 之前跟着系统 prefers-color-scheme 走,新设备系统非深色
