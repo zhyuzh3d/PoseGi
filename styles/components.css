@@ -335,6 +335,10 @@
 .about-brand { display: flex; align-items: center; margin: 4px 0 14px 0; }
 .about-brand strong { font-size: 20px; }
 .about-brand .brand-mark { width: 38px; height: 38px; margin-right: 10px; font-size: 18px; }
+/* 关于面板用真实图标:38px 是这套品牌图还能看清字标的最小尺寸。
+   顶栏那个 24px 的字母块保持原样 —— 同样一张图缩到 24px 只剩一团,旁边就是
+   「PoseGi」字样,再放一个认不出的图标只是噪声。 */
+.about-brand img.brand-mark { display: block; border-radius: 10px; object-fit: cover; background: none; }
 .about-meta { color: var(--muted); font-size: 11.5px; line-height: 1.55; }
 .about-link { width: 100%; margin-top: 14px; text-decoration: none; }
 .about-link i { margin-right: 7px; font-size: 14px; }

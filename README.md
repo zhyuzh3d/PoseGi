@@ -5,7 +5,7 @@ PoseGi 是运行在 [Hermit](https://hermit.airen.life/) 宿主里的 3D 摆姿 
 > 官网：<https://posegi.airen.life/> · 源码仓库：<https://github.com/zhyuzh3d/PoseGi> · [下载安装包](https://hermit.airen.life/pages/happs.html#happ-life-airen-posegi) · [GitHub Releases](https://github.com/zhyuzh3d/PoseGi/releases) · [MIT License](./LICENSE)
 
 - happ id：`life.airen.posegi`
-- 当前源码版本：`0.1.1`(versionCode `3`,见 `hermit.json`)
+- 当前源码版本：`0.1.2`(versionCode `4`,见 `hermit.json`)
 - 形态：HermitApp 的普通 happ,不能脱离宿主单独安装,纯原生 HTML / CSS / JavaScript,没有构建步骤
 - 3D 内核：内置 three.js r147(`vendor/three/`,随包分发,不联网加载)
 

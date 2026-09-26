@@ -707,7 +707,7 @@
   /* ---------- 软件信息 ---------- */
 
   function openAbout() {
-    var html = '<div class="about-brand"><span class="brand-mark">P</span><div><strong>PoseGi</strong>' +
+    var html = '<div class="about-brand"><img class="brand-mark" src="./app/assets/icon.webp" alt="" width="38" height="38"><div><strong>PoseGi</strong>' +
       '<div class="about-meta">v' + esc(app.version) + " · MIT</div></div></div>" +
       "<p>" + t("摆好姿势,再交给 AI 完成画面。", "Pose it by hand, then let AI finish the picture.") + "</p>" +
       '<p class="about-meta">' + t("原生 HTML / CSS / JavaScript 开源 happ,运行在 Hermit 上。姿态在本机渲染,只有你配置的服务会收到画面。",
