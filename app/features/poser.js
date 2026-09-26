@@ -4,7 +4,7 @@
  * 事件:pose:changed { angles, joint, source } / pose:selected { joint }
  * 约束:不碰 DOM,不碰 three.js;所有角度都经 app.rig 归一化。
  *
- * 现状:骨架。选中关节后的交互(点选、拖拽、滑杆)与撤销栈都还没做。
+ * 现状:选中关节后的交互(点选、拖拽、滑杆、预设、镜像)都在;撤销栈还只是个抛错的占位。
  */
 (function (app) {
   "use strict";
@@ -104,20 +104,11 @@
     return angles;
   }
 
-  function load(pose) {
-    var record = app.rig.parse(pose);
-    if (!record) throw new Error("姿态数据不合法");
-    angles = record.angles;
-    app.state.poseName = record.name;
-    changed("", "load");
-    return angles;
-  }
-
-  function save(name) {
-    app.state.poseName = String(name || app.state.poseName || "").trim();
-    if (!app.state.poseName) throw new Error("请先给姿态起个名字");
-    return app.services.store.savePose({ name: app.state.poseName, angles: current() });
-  }
+  /* 姿态的存取已随「姿态库」一起下线(2026-09-25)。
+   * 现在一件作品 = 标题 + 提示词 + 它自己的成图(见 store.snapshot),
+   * 姿态不进存储 —— 拖完直接生成,生成时现场渲染参考图,不需要先把姿态存下来。
+   * 曾经这里有 save() 调 store.savePose(),而 store 早已没有这个方法:
+   * 留着它就是一条指着空处的契约(verify.mjs 的跨模块检查会直接报出来)。 */
 
   /* 撤销栈:与姿态改动同源,先留接口,实现见 README 的"目标能力" */
   function undo() { throw new Error("撤销尚未实现"); }
@@ -133,8 +124,6 @@
     applyPreset: applyPreset,
     mirror: mirrorNow,
     reset: resetNow,
-    load: load,
-    save: save,
     undo: undo,
     redo: redo
   };

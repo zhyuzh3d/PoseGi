@@ -44,6 +44,46 @@
     } catch (error) { /* 不支持就走清单与 CSS */ }
   }
 
+  /* 给生图引擎的截图口:正方形参考图。
+     交给模型的永远是同一张 1024 边的干净渲染图,与模型卡自己的画幅无关。
+
+     编码是 JPEG 而不是 PNG,因为这张图要**整个塞进请求体**发给模型:宿主单条消息
+     200000 字符封顶(见 platform/hermit.js 的 MESSAGE_CHARS),而 1024 的 PNG 截图
+     在真机上量出来是 233750 字符 —— 会被自家的 checkBudget 直接拦下,报
+     "超过宿主单次请求上限",连网都出不去。同一张图 JPEG(0.92)只有 62659 字符。
+     3D 渲染是一大片平滑渐变,JPEG 的损失落在扩散模型的参考图里看不出来;
+     0.92 这个值也是量出来的:0.85 只有 44091 字符,但没必要为了省一半体积再降一档画质。 */
+  function captureSquare(size) {
+    var value = Math.max(64, Math.round(Number(size) || app.config.reference.size));
+    return app.components.viewport.captureAt(value, value, { format: "image/jpeg", quality: 0.92 });
+  }
+
+  /* 打开"上次用的那件作品";一件作品都没有就弹「添加作品」(2026-09-25 用户要求)。
+   *
+   * 三件事各归各处:
+   *   - 「上次用哪件」记在配置的 preferences.lastWorkId 里(store 在换作品时写);
+   *   - 指向的作品已经被删掉时退回列表里最新的一件,而不是报错;
+   *   - 一件都没有(全新装机)才弹表单 —— 用户原话「如果是第一次启动,就弹窗添加作品」。
+   * 放在自检之后:这两个动作都会开弹层,先让自检跑完,免得启动中途弹出来的面板
+   * 被自检的写操作打断。 */
+  async function openStartupWork() {
+    try {
+      var list = app.services.store.listWorks();
+      if (!list.length) {
+        app.features.editor.openAddWorkSheet({ firstRun: true });
+        return null;
+      }
+      var last = app.services.store.lastWorkId();
+      var target = list.filter(function (item) { return item.id === last; })[0] || list[0];
+      await app.services.store.openWork(target.id);
+      app.features.editor.status(app.i18n.text("当前作品:", "Current artwork: ") + app.state.workTitle);
+      return target.id;
+    } catch (error) {
+      app.events.emit("error", error);
+      return null;
+    }
+  }
+
   async function start() {
     app.components.ui.init();
     app.events.on("error", function (error) { app.components.ui.toast(app.utils.cleanError(error), "error"); });
@@ -51,6 +91,9 @@
     await app.services.store.loadConfig();
     app.i18n.setLanguage(app.config.preferences.language);
     app.i18n.theme();
+    /* 译英缓存在数据区里,启动时读一次就够(见 services/translate.js 的 load)。
+       读不到不影响任何事:没有缓存只是"这句话要多翻一次"。 */
+    await app.services.translate.load().catch(function () {});
 
     /* 先把配置里记着的造型装进骨架,再建视口 —— 视口初始化时直接读到装好的关节表,
        于是外带模型不需要"先建一遍再换一遍" */
@@ -58,10 +101,10 @@
 
     app.components.viewport.init(document.getElementById("stage-viewport"));
     app.components.viewport.setTheme(app.state.theme);
-    app.services.imageEngine.init({ capture: app.components.viewport.capture });
+    app.services.imageEngine.init({ capture: captureSquare });
     app.features.poser.init();
     wireViewport();
-    app.components.gallery.init(document.getElementById("gallery-body"));
+    app.components.renderPreview.init();
     app.components.settings.init();
     app.features.editor.init();
     app.features.editor.status(app.features.editor.defaultStatus());
@@ -70,12 +113,8 @@
     app.platform.hermit.reportTheme();
     lockPortrait();
 
-    var media = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
-    if (media && media.addListener) media.addListener(function () {
-      app.components.viewport.setTheme(app.i18n.theme());
-    });
-
     await app.features.selfTest.run();
+    await openStartupWork();
   }
 
   window.addEventListener("error", function (event) {
@@ -93,12 +132,32 @@
         version: app.version,
         theme: document.documentElement.dataset.theme,
         language: app.i18n.language(),
+        languagePreference: app.i18n.preferred(),
         selectedJoint: app.state.selectedJoint,
         selectedPart: app.state.selectedPart,
         poseName: app.state.poseName,
         dirty: app.state.dirty,
         busy: app.state.busy,
         status: app.state.status,
+        work: {
+          id: app.state.workId, title: app.state.workTitle, results: (app.state.results || []).length,
+          prompt: String(app.state.prompt || "").slice(0, 60),
+          promptEn: String((app.state.promptEn || {}).text || "").slice(0, 60),
+          lastWorkId: app.services.store.lastWorkId(),
+          works: app.services.store.listWorks().length
+        },
+        translate: {
+          enabled: Boolean(app.config && app.config.translate && app.config.translate.enabled),
+          endpoint: String(app.config && app.config.translate && app.config.translate.endpoint || ""),
+          resolved: (function () {
+            var item = app.services.translate.internals.connection();
+            return item ? item.endpoint : "";
+          })(),
+          cached: Object.keys(app.services.translate.internals.cache).length
+        },
+        models: (app.config && app.config.models || []).map(function (item) {
+          return { id: item.id, name: item.name, protocol: item.protocol, task: item.task, size: item.size, refStrength: item.refStrength, endpoint: item.endpoint, active: item.id === app.config.activeModelId };
+        }),
         viewport: { available: viewport.available(), reason: viewport.reason() },
         figure: { id: app.features.figure.current(), figure: viewport.figure() },
         scene: { mode: viewport.mode(), counts: viewport.counts(), view: viewport.view(), body: viewport.body() },
@@ -176,6 +235,71 @@
     figure: function (id) {
       var target = id === undefined || id === null ? app.features.figure.current() : String(id);
       return app.features.figure.apply(target, { force: true });
+    },
+
+    /* 设备端配置模型卡:patch 是一组 {id?, name?, ...}。
+       没有 id 就新增,有 id 就改那一张 —— 用来把设备上的卡一次配好,不必在手机上点半天。 */
+    models: function (patch) {
+      var config = app.utils.copy(app.config);
+      if (patch && Object.prototype.toString.call(patch) === "[object Array]") {
+        patch.forEach(function (item) {
+          var next = app.services.store.shapeConfig({ models: [item] }).models;
+          var values = app.services.providers.preset(item.protocol || "cvp", item.task || "quick");
+          Object.keys(item).forEach(function (key) { if (key !== "id") values[key] = item[key]; });
+          values.id = String(item.id || values.id);
+          var position = -1;
+          config.models.forEach(function (current, order) { if (current.id === values.id) position = order; });
+          if (position >= 0) config.models[position] = app.utils.merge(config.models[position], values);
+          else config.models.push(values);
+          void next;
+        });
+      }
+      if (patch && patch.activeModelId) config.activeModelId = patch.activeModelId;
+      if (patch && patch.connection) config.connection = app.utils.merge(config.connection, patch.connection);
+      return app.services.store.saveConfig(config).then(function (saved) {
+        return saved.models.map(function (item) {
+          return { id: item.id, name: item.name, protocol: item.protocol, task: item.task, size: item.size, endpoint: item.endpoint, active: item.id === saved.activeModelId };
+        });
+      });
+    },
+
+    /* 设备端验收:不走界面直接生一张,回来的是这次成图的 id */
+    generate: function () {
+      return app.services.imageEngine.run().then(function (image) {
+        return image ? { id: image.id, bytes: app.utils.dataUrlByteLength(image.src) } : null;
+      });
+    },
+
+    /* 设备端验收:把「打开上次的作品 / 首次启动弹添加作品」这条路重走一遍。
+       传一张作品 id 可以顺带验证"打开指定作品"。 */
+    startup: function (id) {
+      return id ? app.services.store.openWork(String(id)).then(function () { return app.state.workId; }) : openStartupWork();
+    },
+
+    /* 设备端验收:不点按钮直接走一遍截图保存(它会拉起系统保存框,人工点掉即可) */
+    captureStage: function () {
+      return app.features.editor.captureStage().then(function (result) {
+        return result ? { exported: result.exported, cancelled: result.cancelled, name: result.name, bytes: result.bytes } : null;
+      });
+    },
+
+    /* 译英服务:设备端直接问一次"这句话翻成什么",用来区分是配置不通还是缓存没命中 */
+    translate: function (text) {
+      var value = String(text === undefined || text === null ? app.state.prompt : text).trim();
+      return app.services.translate.translate([value]).then(function () {
+        return {
+          source: value, english: app.services.translate.english(value),
+          cached: app.services.translate.translated(value), hasCjk: app.services.translate.hasCjk(value)
+        };
+      });
+    },
+
+    /* 直接打一次模型连接测试(不生成图片) */
+    testModel: function (id) {
+      var model = id ? app.services.providers.byId(String(id)) : app.services.providers.active();
+      return app.services.providers.test(model).then(function (value) {
+        return { ok: value.ok, task: value.task || "", model: value.model || "" };
+      });
     },
 
     /* 不点屏幕,直接把两条链路各走一遍:拖连接杆(旋转)与拖节点(IK)。

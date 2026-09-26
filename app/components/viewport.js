@@ -46,6 +46,9 @@
  *   viewport:blank-pending {}               同一次点击,但立刻发:挂起开始
  *   viewport:blank-cancel  {}               挂起被撤掉(双击成立),别真清选择
  *   viewport:reframe {}                     空白处双击:该重新取景了
+ *   viewport:camera  { active }             视图(相机)开始/结束被操作:
+ *                                           单指在空白处真的拖起来、或有第二根手指落下时为 true;
+ *                                           抬手还原。状态行据此改说相机那三件事。
  *
  * 约束:
  *   - 不使用 flex gap 之类的现代布局;尺寸由容器决定,ResizeObserver 不可用时退回 resize 事件。
@@ -67,12 +70,20 @@
      直接拿来当球半径会得到比脑袋还大的球,整条腿都被它盖住,点空地就再也点不中。 */
   var NODE_RADIUS = 0.045;
 
+  /* broot(纯变换节点)那颗八面体的半径,米。它是"整体搬运"的把手,不是人体的一部分,
+     所以尺寸自由:取节点球的 2.2 倍(0.045 → 0.10,即旧值 0.05 的一倍),
+     一眼就能在小人身上认出它来。放大不改变可见性规则 —— 仍然**只在它被选中时才现**,
+     与节点球完全同一套规则(见 highlight),平时画面上不多任何东西。 */
+  var PIVOT_RADIUS = 0.10;
+
   /* 命中容差 */
   /* 手指落在关节原点多少像素以内,优先判成"抓住这个关节"(移动 / IK)。
      这是**屏幕距离**,与镜头远近无关 —— 手指在屏幕上大概就是这么宽,所以放远的
      小人也能点得着,而放近时球在屏幕上变大、容差不会再跟着涨。
-     取 33 = 上一版 22 的 1.5 倍:这一版把球画小了,靠它把"好点"的手感补回来。 */
-  var NODE_GRAB_PX = 33;
+     曾经是 33(球画小之后靠它把"好点"的手感补回来),但那个圈太大:
+     两个关节挨得近时(腕与肘、左右踝),想点骨杆中段会被邻近的节点抢走。
+     2026-09-25 按用户要求收到 80%:33 → 26。 */
+  var NODE_GRAB_PX = 26;
   /* 胖射线的判定半径(米)。这是"射线刚好擦过细零件"时的兜底 ——
      零件网格自己也在拾取表里,正常情况是精确命中,所以这里只给一个细窄的容差:
      给大了(上一版拿零件包围球半径 ×1.5,前臂算出 0.20)整条腿旁边的空地都算命中。 */
@@ -100,40 +111,39 @@
   var DOUBLE_TAP_PX = 36;
 
   /* 场景配色跟页面主题走:深色页面里放一块浅底视口会非常刺眼。
-     小人本身是原木色,浅色主题下偏暖、深色主题下偏灰。 */
+     小人本身是原木色,浅色主题下偏暖、深色主题下偏灰。
+     env 是**环境三色**:贴在天空球内壁上的一条纵向渐变 —— 上天空、下地面,中间一条
+     最亮的雾色当"虚地平线"。三个十六进制值就是**屏幕上会看到的字节值**
+     (环境球由本文件自己的 shader 原样输出,见 环境 一节,真机采样已核对:写 0x8cc4ee
+     量出来就是 (140,196,238)),所以按肉眼想要的颜色写即可,不需要反推 gamma。
+     亮色那套:亮蓝天蓝 / 雾白 / 灰黄土。
+     深色那套:同一调性压暗成深蓝 / 灰雾 / 暗土灰 —— 地平线仍是全图最亮的一条带,
+     否则"雾化的地平线"在深色主题里会整条消失。
+     (2026-09-25 试过一次"环境脱钩主题、一律白天配色",用户看过之后决定回到
+      "深色主题配深色天空",所以这里仍然是每个主题各一套。)
+     **当天稍后又定:应用不做主题切换,主题锁死深色(namespace.js 的 app.THEME),
+     所以 light 这一套目前不可达,留着只为了让 setTheme 这个入口保持完整。** */
   var THEMES = {
     light: {
-      background: 0xe8ebf0,
-      ground: 0xd9dee5,
+      env: { sky: 0x8cc4ee, horizon: 0xeef2f6, floor: 0xbdb1a0 },
       bone: 0xded1ba,
       node: 0xccbca1,
       head: 0xe5dbc6,
       pivot: 0x8590a0,
-      grid: 0xbfc6d0,
-      gridSub: 0xd8dde4,
-      shadow: 0x2a3038,
-      shadowOpacity: 0.26,
       select: 0x5b5bd6
     },
     dark: {
-      background: 0x171a1f,
-      /* 地面与网格必须按"渲染出来之后"选,不能照着背景色选:
-         renderer.outputEncoding = sRGB,中间调会被抬亮约 3 倍,照背景色填的话
-         地板会渲染成一块中灰板子,在近乎全黑的背景上横一条硬地平线(本机采样过:
-         0x1f242c 渲出来是 #767e89,亮度 125,而背景只有 26)。 */
-      ground: 0x0d1015,
+      env: { sky: 0x22303f, horizon: 0x46525f, floor: 0x2b2721 },
       bone: 0xa79d89,
       node: 0x91866f,
       head: 0xb5aa95,
       pivot: 0x94a1b2,
-      grid: 0x1a2029,
-      gridSub: 0x141a21,
-      shadow: 0x000000,
-      shadowOpacity: 0.5,
       select: 0x9a9af5
     }
   };
-  var themeName = "light";
+  /* 初值取锁值深色:视口在 setTheme 之前就会先建一遍场景,
+     初值若还是 light,启动瞬间会闪一下亮色环境(2026-09-25 锁深色主题)。 */
+  var themeName = "dark";
 
   var state = {
     container: null,
@@ -144,9 +154,7 @@
     controls: null,
     bbox: null,
     boxHelper: null,
-    grid: null,
-    ground: null,
-    shadow: null,
+    environment: null,
     objects: {},
     parts: {},
     /* 当前造型:app/core/models.js 里的模型定义(骨架参数已由 rig.applyModel 装好) */
@@ -164,6 +172,8 @@
        判据**不是** gl_FrontFacing —— 人偶是闭合网格,从外面看每个可见三角形都是正面,
        按那个判据渲出来是一片白,一点信息都没有。理由与参数见 正反着色 一节。 */
     mask: null,
+    /* 建几何时有多少件真的烘出了 aSide —— 自检据此发现"烘焙静默失效" */
+    sided: 0,
     dragging: null,
     /* 当前按在屏幕上的手指(按下顺序无关,按 pointerId 记账)。
        双指手势只有在知道"一共有几根手指"时才敢判定,所以要自己记账。 */
@@ -178,6 +188,11 @@
     lastBlankTap: null,
     /* "点空白清选择"挂起的定时器:让双击的第一下不至于把选中清掉(见 onPointerUp) */
     blankTimer: null,
+    /* 视图(相机)正在被操作吗 —— 状态行据此改口说相机那三件事(见 viewport:camera、
+     * syncCameraActive)。判据只有两条:单指在空白处**真的拖起来了**(不是点一下),
+     * 或者有两根手指按着(捏合 / 双指平移)。 */
+    cameraActive: false,
+    orbiting: false,
     available: false,
     reason: "",
     lost: false,
@@ -216,39 +231,18 @@
 
   /* ---------- 资源:几何体与材质 ---------- */
 
-  /* 软阴影贴图:径向渐变,比一块纯色圆片自然得多 */
-  function buildShadowTexture() {
-    var size = 128;
-    var canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    var context = canvas.getContext("2d");
-    if (!context) return null;
-    var gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    gradient.addColorStop(0, "rgba(255,255,255,0.85)");
-    gradient.addColorStop(0.45, "rgba(255,255,255,0.34)");
-    gradient.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, size, size);
-    return new THREE.CanvasTexture(canvas);
-  }
-
   function buildAssets() {
     var palette = THEMES[themeName];
-    var shadowTexture = buildShadowTexture();
 
-    /* 场景里剩下的这几件几何与人物造型无关(把手球、源点标记、地面、影子、包围盒框)。
-       人物自己的零件几何一律来自模型,由 app/core/models.js 缓存并释放,不在这里建。 */
+    /* 场景里只剩这几件几何与人物造型无关(把手球、源点标记、包围盒框)。
+       人物自己的零件几何一律来自模型,由 app/core/models.js 缓存并释放,不在这里建。
+       地面圆盘、网格辅助线与脚下的软阴影都已经去掉:环境整个交给天空球,
+       既然没有实体地面,就不该有落在"地面"上的影子(见 buildScene)。 */
     state.assets = {
       geometries: {
         node: new THREE.SphereGeometry(1, 16, 12),
         pivot: THREE.OctahedronGeometry ? new THREE.OctahedronGeometry(1, 0) : new THREE.SphereGeometry(1, 8, 6),
-        ground: new THREE.CircleGeometry(6, 48),
-        shadow: new THREE.PlaneGeometry(1.5, 1.5),
         box: new THREE.EdgesGeometry(new THREE.BoxGeometry(BBOX_SIZE.width, BBOX_SIZE.height, BBOX_SIZE.depth))
-      },
-      textures: {
-        shadow: shadowTexture
       },
       materials: {
         bone: new THREE.MeshStandardMaterial({ color: palette.bone, roughness: 0.68, metalness: 0.02 }),
@@ -256,22 +250,13 @@
         head: new THREE.MeshStandardMaterial({ color: palette.head, roughness: 0.62, metalness: 0.02 }),
         pivot: new THREE.MeshStandardMaterial({ color: palette.pivot, roughness: 0.5, metalness: 0.1 }),
         selected: new THREE.MeshStandardMaterial({ color: palette.select, roughness: 0.45, metalness: 0.08 }),
-        ground: new THREE.MeshStandardMaterial({ color: palette.ground, roughness: 1, metalness: 0 }),
-        shadow: new THREE.MeshBasicMaterial({
-          color: palette.shadow,
-          map: shadowTexture,
-          transparent: true,
-          opacity: palette.shadowOpacity,
-          depthWrite: false
-        }),
         box: new THREE.LineBasicMaterial({ color: palette.select, transparent: true, opacity: 0.55 })
       }
     };
 
     /* 正反着色挂在这三处零件材质上:bone(常态)、head(头/手/脚这类整块就是零件的关节)、
        selected(选中高亮)。开关只是 uniform,所以一切照旧,不开关的时候渲染结果一个字节都不变。 */
-    if (!state.mask) state.mask = { uniforms: buildMaskUniforms(), attached: 0, vertex: "", fragment: "" };
-    state.mask.attached = 0;
+    ensureMask().attached = 0;
     ["bone", "head", "selected"].forEach(function (key) {
       if (attachMask(state.assets.materials[key], state.mask)) state.mask.attached += 1;
     });
@@ -311,19 +296,36 @@
    * 两个锚点是**字符串匹配**,three.js 一改名就会静默失效(replace 找不到就原样返回,
    * 不报错、照样编译通过,只是颜色一点没变)。所以自检里有一条 checkFaceMask 守着它们。 */
   var MASK_BACK_GRAY = 0.5019;
-  /* 黑白层混进材质颜色的比例(用户指定 30%)。0 = 完全不生效,1 = 整块替换。 */
+  /* 正反层混进材质颜色的比例(用户指定 30%)。0 = 完全不生效,1 = 整块替换。 */
   var MASK_MIX = 0.3;
+  /* 三个档位,由底部 dock 的"正反"按钮循环切换:0 = 不显示,1 = 白/灰,2 = 红/绿。
+     同一时刻只有一组颜色生效,所以 shader 里仍然只要两个颜色 uniform ——
+     换档只是给它们重新赋值,既不重编程序、也不碰几何与姿态。 */
+  var MASK_LAYERS = [
+    null,
+    { front: [1, 1, 1], back: [MASK_BACK_GRAY, MASK_BACK_GRAY, MASK_BACK_GRAY] },
+    { front: [0.86, 0.14, 0.16], back: [0.10, 0.60, 0.22] }
+  ];
 
+  /* 正反着色只有三个量:开关、混色比例、两种颜色。
+     判定依据**不在 uniform 里** —— 每个顶点"朝前多少"已经烘进几何的 aSide 属性
+     (见 app/core/models.js 的 bakeSide),所以这里没有任何需要逐帧同步的方向量。 */
   function buildMaskUniforms() {
+    var layer = MASK_LAYERS[1];
     return {
       uMaskOn: { value: 0 },
       uMaskMix: { value: MASK_MIX },
-      /* 角色朝向(世界空间)。朝向是量出来的:面朝 +Z;取**骨盆**的世界朝向,
-         于是人物整体转身时着色跟着转(理由见 syncMaskDirection)。 */
-      uMaskDir: { value: new THREE.Vector3(0, 0, 1) },
-      uMaskFront: { value: new THREE.Vector3(1, 1, 1) },
-      uMaskBack: { value: new THREE.Vector3(MASK_BACK_GRAY, MASK_BACK_GRAY, MASK_BACK_GRAY) }
+      uMaskFront: { value: new THREE.Vector3(layer.front[0], layer.front[1], layer.front[2]) },
+      uMaskBack: { value: new THREE.Vector3(layer.back[0], layer.back[1], layer.back[2]) }
     };
+  }
+
+  /* 懒建(材质挂载与开关都会用到,不能各写一份,否则档位字段会漏) */
+  function ensureMask() {
+    if (!state.mask) {
+      state.mask = { uniforms: buildMaskUniforms(), attached: 0, vertex: "", fragment: "", mode: 0 };
+    }
+    return state.mask;
   }
 
   /* 给一个材质挂上正反着色。三次调用用的是**同一个函数体** ——
@@ -335,20 +337,24 @@
     material.onBeforeCompile = function (shader) {
       shader.uniforms.uMaskOn = uniforms.uMaskOn;
       shader.uniforms.uMaskMix = uniforms.uMaskMix;
-      shader.uniforms.uMaskDir = uniforms.uMaskDir;
       shader.uniforms.uMaskFront = uniforms.uMaskFront;
       shader.uniforms.uMaskBack = uniforms.uMaskBack;
-      shader.vertexShader = "varying vec3 vMaskNormal;\n" + shader.vertexShader.replace(
+      /* 判定量是几何自带的 aSide —— 每个顶点在**静止姿态**下朝前的程度:
+         正数 = 正面色,负数 = 反面色。它只跟几何有关,与姿态、与相机都无关,
+         所以这里既不需要世界矩阵,也没有任何要逐帧同步的方向量 —— 像一张贴图。
+         (从前传的是"世界法线 + 一个角色朝向 uniform":世界法线跟着关节转、
+          角色朝向不跟着关节转,于是**一转动关节,颜色就在零件表面流动**。) */
+      shader.vertexShader = "attribute float aSide;\nvarying float vSide;\n" + shader.vertexShader.replace(
         "#include <defaultnormal_vertex>",
-        "#include <defaultnormal_vertex>\n\tvMaskNormal = normalize( mat3( modelMatrix ) * objectNormal );"
+        "#include <defaultnormal_vertex>\n\tvSide = aSide;"
       );
-      shader.fragmentShader = "varying vec3 vMaskNormal;\n"
-        + "uniform float uMaskOn;\nuniform float uMaskMix;\nuniform vec3 uMaskDir;\nuniform vec3 uMaskFront;\nuniform vec3 uMaskBack;\n"
+      shader.fragmentShader = "varying float vSide;\n"
+        + "uniform float uMaskOn;\nuniform float uMaskMix;\nuniform vec3 uMaskFront;\nuniform vec3 uMaskBack;\n"
         + shader.fragmentShader.replace(
           "#include <encodings_fragment>",
           "#include <encodings_fragment>\n"
           + "\tif ( uMaskOn > 0.5 ) {\n"
-          + "\t\tvec3 maskColor = mix( uMaskBack, uMaskFront, step( 0.0, dot( normalize( vMaskNormal ), uMaskDir ) ) );\n"
+          + "\t\tvec3 maskColor = mix( uMaskBack, uMaskFront, step( 0.0, vSide ) );\n"
           + "\t\tgl_FragColor.rgb = mix( gl_FragColor.rgb, maskColor, uMaskMix );\n"
           + "\t}"
         );
@@ -361,42 +367,38 @@
     return true;
   }
 
-  /* 角色朝向跟着**骨盆**走,不跟 bbox 走。
-   *
-   * 为什么:这个 app 里"整体转身"就是转 hips(见 buildRig 里 broot 那一段说明)——
-   * hips 一动,脊柱与双腿(以及它们的网格法线)全都跟着转。
-   * 若朝向取自 bbox(它只会平移、不跟着转头),用户把小人转 180 度之后,
-   * 正反着色就会把**模型的后背**涂成白的:参照系与人物脱钩了。
-   * 取 hips 的世界朝向,着色就永远贴着"这个模型的前面"。
-   *
-   * 顺带一个好处:它对相机免疫 —— 绕视角、捏合缩放都不会改颜色,
-   * 只有人物自己转身/侧倾才改。 */
-  function syncMaskDirection() {
-    if (!state.mask) return;
-    var dir = state.mask.uniforms.uMaskDir.value;
-    var frame = state.objects.hips || state.objects.broot || null;
-    if (frame) {
-      dir.set(0, 0, 1).transformDirection(frame.matrixWorld);
-    } else if (state.bbox) {
-      dir.set(0, 0, 1).applyQuaternion(state.bbox.quaternion);
-    }
-    dir.normalize();
-  }
+  /* 这里原来是 syncMaskDirection():每帧从 hips 的世界矩阵里取"角色朝向"喂给 shader。
+     现在整块不需要了 —— 判定量是几何自带的 aSide(建几何时按静止姿态烘好,
+     见 buildRig 与 app/core/models.js 的 bakeSide),它只跟几何有关。
+     少一个逐帧同步点,也就少一类错法:从前"世界法线跟着关节转、角色朝向不跟",
+     于是**转动任何单个关节,那个零件表面的颜色就会流动**(抬手臂就换面)。
+     烘成顶点属性之后,颜色与姿态彻底解耦 —— 无论转关节、转整体、绕视角,都不再动。 */
 
-  function setFrontBackMask(on) {
-    var next = Boolean(on);
-    if (!state.mask) state.mask = { uniforms: buildMaskUniforms(), attached: 0, vertex: "", fragment: "" };
-    state.mask.uniforms.uMaskOn.value = next ? 1 : 0;
-    syncMaskDirection();
-    /* 开关是 uniform,不是不同的 #define,所以**不需要**重编程序。
-       也**不碰场景**(背景、地面、网格、影子一律保持原样):黑白只混 30%,
+  /* mode: 0 = 不显示,1 = 白/灰,2 = 红/绿。返回实际生效的档位。 */
+  function setFrontBackMask(mode) {
+    var next = (mode === 1 || mode === 2) ? mode : 0;
+    var mask = ensureMask();
+    mask.mode = next;
+    mask.uniforms.uMaskOn.value = next > 0 ? 1 : 0;
+    var layer = MASK_LAYERS[next];
+    if (layer) {
+      mask.uniforms.uMaskFront.value.set(layer.front[0], layer.front[1], layer.front[2]);
+      mask.uniforms.uMaskBack.value.set(layer.back[0], layer.back[1], layer.back[2]);
+    }
+    /* 开关与配色都是 uniform,不是不同的 #define,所以**不需要**重编程序。
+       也**不碰场景**(背景、地面、网格、影子一律保持原样):正反层只混 30%,
        模型自己的明暗、体积感、主题配色都还在,早先那套"压深背景 + 收掉地面"
        是为整块替换(纯白/纯灰)服务的,现在不成立了。 */
     return next;
   }
 
+  /* 当前档位(0 / 1 / 2)—— dock 按钮据此循环到下一档 */
+  function maskMode() {
+    return state.mask ? state.mask.mode : 0;
+  }
+
   function frontBackMask() {
-    return Boolean(state.mask && state.mask.uniforms.uMaskOn.value > 0.5);
+    return maskMode() > 0;
   }
 
   /* 诊断出口:给自检与设备端页面状态用 */
@@ -404,17 +406,22 @@
     if (!state.mask) return null;
     return {
       on: frontBackMask(),
+      /* 档位 0 = 不显示、1 = 白/灰、2 = 红/绿 */
+      mode: state.mask.mode,
       attached: state.mask.attached,
+      sided: state.sided,
       compiled: state.mask.fragment.length > 0,
       vertex: state.mask.vertex,
       fragment: state.mask.fragment,
-      dir: [state.mask.uniforms.uMaskDir.value.x, state.mask.uniforms.uMaskDir.value.y, state.mask.uniforms.uMaskDir.value.z],
+      /* axis 是"正面"的基准轴,在**骨架空间**里恒为 +Z —— 它是常量,不是某个实时的
+         世界方向(判定值烘在几何的 aSide 上),报出来只是让自检确认基准没被改坏。 */
+      axis: [0, 0, 1],
       mix: state.mask.uniforms.uMaskMix.value
     };
   }
 
-  /* 换主题只改颜色,不重建骨架。例外是 GridHelper 与地面 —— 它们的颜色来自几何体
-     自带的顶点色,只能重建。 */
+  /* 换主题只改颜色,不重建骨架。环境球也**不重建** —— 它的三个颜色是 uniform,
+     就地写进去就行(早期版本把渐变画在纹理上,颜色换不了只能重画一张再换上去)。 */
   function paintTheme() {
     if (!state.assets) return;
     var palette = THEMES[themeName] || THEMES.light;
@@ -424,27 +431,20 @@
     materials.head.color.setHex(palette.head);
     materials.pivot.color.setHex(palette.pivot);
     materials.selected.color.setHex(palette.select);
-    materials.ground.color.setHex(palette.ground);
     materials.box.color.setHex(palette.select);
-    materials.shadow.color.setHex(palette.shadow);
-    materials.shadow.opacity = palette.shadowOpacity;
 
-    if (state.renderer) state.renderer.setClearColor(palette.background, 1);
-    if (state.scene && state.scene.background && state.scene.background.setHex) state.scene.background.setHex(palette.background);
+    if (state.renderer) state.renderer.setClearColor(palette.env.sky, 1);
+    if (state.scene && state.scene.background && state.scene.background.setHex) {
+      state.scene.background.setHex(palette.env.sky);
+    }
 
     if (state.scene) {
-      if (state.grid) {
-        state.scene.remove(state.grid);
-        state.grid.geometry.dispose();
-        state.grid.material.dispose();
-        state.grid = null;
+      if (state.environment) {
+        applyEnvironment(state.environment, palette);
+      } else {
+        state.environment = buildEnvironment(palette);
+        state.scene.add(state.environment);
       }
-      var grid = new THREE.GridHelper(4, 8, new THREE.Color(palette.grid), new THREE.Color(palette.gridSub));
-      grid.material.transparent = true;
-      grid.material.opacity = 0.85;
-      grid.position.y = 0.001;
-      state.scene.add(grid);
-      state.grid = grid;
     }
     highlight(state.selected, state.selectedPart);
   }
@@ -452,15 +452,108 @@
   function disposeAssets() {
     if (!state.assets) return;
     var geometries = state.assets.geometries;
-    ["node", "pivot", "ground", "shadow", "box"].forEach(function (key) {
+    ["node", "pivot", "box"].forEach(function (key) {
       if (geometries[key] && geometries[key].dispose) geometries[key].dispose();
     });
-    if (state.assets.textures.shadow && state.assets.textures.shadow.dispose) state.assets.textures.shadow.dispose();
-    ["bone", "node", "head", "pivot", "selected", "ground", "shadow", "box"].forEach(function (key) {
+    ["bone", "node", "head", "pivot", "selected", "box"].forEach(function (key) {
       var material = state.assets.materials[key];
       if (material && material.dispose) material.dispose();
     });
     state.assets = null;
+  }
+
+  /* ---------- 环境:渐变天空球 ----------
+   *
+   * 用一个大球的内壁当背景,替掉原来的"纯色背景 + 实体地面圆盘 + 网格辅助线":
+   * 没有硬边、也没有一块可见的地面平面,人物像站在一片雾里。
+   * 球的赤道就是地平线,而地平线整条由 shader 里那条雾带表现,所以它是"虚"的。
+   *
+   * **颜色原样输出**:这是本模块唯一一处不走 three 内置材质的着色 —— 目的就是让
+   * THEMES.env 里的十六进制值与屏幕像素一一对应。内置材质那条链把颜色当线性值、
+   * 光照完再 linearToOutputTexel 编回 sRGB,中间调被抬亮,期望值与屏幕值对不上
+   * (上一版把渐变画进 CanvasTexture,写 #eef2f6 量出来是 143,试了两轮都没收敛)。
+   * 自己写 gl_FragColor 就直接落进帧缓冲,没有中间商,一次就能调准。
+   * 因此片元里**不能**写 #include <encodings_fragment>,那等于又绕回那条编码链。
+   */
+  var ENV_RADIUS = 48;      // 相机远平面是 80,48 够"远",又不会被裁掉
+
+  /* 顶点:把"球面上的高度"传给片元。用 normalize(position).y 而不是 atan 出来的仰角 ——
+     它就是 sin(仰角),靠近地平线处变化更"挤",雾带因此天然更宽。
+     0 = 地平线,+1 = 天顶,-1 = 脚下。 */
+  var ENV_VERTEX_SHADER = [
+    "varying float vHeight;",
+    "void main() {",
+    "  vHeight = normalize( position ).y;",
+    "  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );",
+    "}"
+  ].join("\n");
+
+  /* 片元:三段纯色在地平线两端各自 smoothstep 过渡。
+     0.012 是地平线附近那条"雾心"(完全不混色的一小条),0.24 / 0.26 决定雾带多宽 ——
+     约 14 度仰角就走到纯天空色,而默认机位竖直视野只有 40 度,这个宽度正好让画面上缘
+     是蓝天、脚下是土黄、中间一条白雾横贯。h 过 0 时两个 mix 都等于 uHorizon,
+     所以这条 step 阶梯不产生接缝。 */
+  var ENV_FRAGMENT_SHADER = [
+    "uniform vec3 uSky;",
+    "uniform vec3 uHorizon;",
+    "uniform vec3 uFloor;",
+    "varying float vHeight;",
+    "void main() {",
+    "  float h = clamp( vHeight, -1.0, 1.0 );",
+    "  vec3 above = mix( uHorizon, uSky, smoothstep( 0.012, 0.240, h ) );",
+    "  vec3 below = mix( uHorizon, uFloor, smoothstep( 0.012, 0.260, -h ) );",
+    "  gl_FragColor = vec4( mix( below, above, step( 0.0, h ) ), 1.0 );",
+    "}"
+  ].join("\n");
+
+  /* 十六进制 → 0..1 三元组,**不做任何色彩空间转换**:这三个数会被原样写进帧缓冲,
+     它们就是屏幕上出现的字节值。故意绕开 THREE.Color —— 它在 legacyMode 下虽然也不转换,
+     但那取决于 three 的全局开关,而这里"期望值 = 屏幕值"是硬要求。 */
+  function envColor(hex) {
+    return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+  }
+
+  /* 换主题时就地改写三个 uniform,不重建几何与材质 */
+  function applyEnvironment(mesh, palette) {
+    var uniforms = mesh && mesh.material && mesh.material.uniforms;
+    if (!uniforms) return false;
+    var keys = [["uSky", palette.env.sky], ["uHorizon", palette.env.horizon], ["uFloor", palette.env.floor]];
+    for (var i = 0; i < keys.length; i++) {
+      var rgb = envColor(keys[i][1]);
+      var value = uniforms[keys[i][0]].value;
+      value[0] = rgb[0];
+      value[1] = rgb[1];
+      value[2] = rgb[2];
+    }
+    return true;
+  }
+
+  function buildEnvironment(palette) {
+    var material = new THREE.ShaderMaterial({
+      uniforms: {
+        uSky: { value: envColor(palette.env.sky) },
+        uHorizon: { value: envColor(palette.env.horizon) },
+        uFloor: { value: envColor(palette.env.floor) }
+      },
+      vertexShader: ENV_VERTEX_SHADER,
+      fragmentShader: ENV_FRAGMENT_SHADER,
+      side: THREE.BackSide,     // 从球里面看
+      depthWrite: false,        // 它只是背景,不参与深度
+      fog: false
+    });
+    var mesh = new THREE.Mesh(new THREE.SphereGeometry(ENV_RADIUS, 32, 24), material);
+    /* 先画:renderOrder 最小 + 不写深度 ⇒ 永远垫在最底下,不吃场景里的任何东西 */
+    mesh.renderOrder = -1;
+    /* 相机始终在球内,包围球永远与视锥相交,剔不剔都一样;显式关掉是防"哪天相机拉远了整块消失" */
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+
+  function disposeEnvironment() {
+    if (!state.environment) return;
+    if (state.environment.material) state.environment.material.dispose();
+    if (state.environment.geometry) state.environment.geometry.dispose();
+    state.environment = null;
   }
 
   /* ---------- 场景与骨架 ---------- */
@@ -468,7 +561,8 @@
   function buildScene() {
     var palette = THEMES[themeName];
     var scene = new THREE.Scene();
-    scene.background = new THREE.Color(palette.background);
+    /* 背景色只当兜底(天空球盖不住的那几个像素);真正的天空由天空球铺满 */
+    scene.background = new THREE.Color(palette.env.sky);
     state.scene = scene;
 
     var width = Math.max(1, state.container.clientWidth);
@@ -491,24 +585,13 @@
     rim.position.set(-0.6, 1.2, -2.6);
     scene.add(rim);
 
-    var ground = new THREE.Mesh(state.assets.geometries.ground, state.assets.materials.ground);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.002;
-    scene.add(ground);
-    state.ground = ground;
-
-    var grid = new THREE.GridHelper(4, 8, new THREE.Color(palette.grid), new THREE.Color(palette.gridSub));
-    grid.material.transparent = true;
-    grid.material.opacity = 0.85;
-    grid.position.y = 0.001;
-    scene.add(grid);
-    state.grid = grid;
-
-    var shadow = new THREE.Mesh(state.assets.geometries.shadow, state.assets.materials.shadow);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.004;
-    scene.add(shadow);
-    state.shadow = shadow;
+    /* 环境:渐变天空球。地面圆盘、网格辅助线与脚下的影子都是在这里被替掉的 ——
+       没有可见的地面平面,地平线由 shader 里那条雾带表现,人物像站在一片雾里。
+       影子一并去掉(2026-09-25 用户定调):既然没有实体地面,那块贴在 y≈0 上的
+       半透明暗斑就成了悬在半空的一块灰饼,反而更假。 */
+    var environment = buildEnvironment(palette);
+    scene.add(environment);
+    state.environment = environment;
 
     /* bbox:人物所在的子空间。"搬运"移动的就是它,姿态不受影响。 */
     var bbox = new THREE.Group();
@@ -543,8 +626,14 @@
     state.objects = {};
     state.parts = {};
     state.pickables = [];
+    state.sided = 0;
     state.figure = figureDefinition();
     var figure = state.figure;
+    /* 正反着色要"以当前站姿为基准、定下来就不再变",所以这里先算出整棵骨架在
+       **静止姿态**下的朝向,建每个零件的几何时按关节取用(见 models.geometry 的 basis)。
+       用 rig 的纯数学算,不去读场景里的 matrixWorld —— 几何必须先在骨架摆好之前建出来。
+       rest 已经含 twist(把掌心拧到朝前的那一次),所以基准正是"现在这个站姿"。 */
+    var restFrames = app.rig.frames(app.rig.defaultAngles());
 
     app.rig.joints.forEach(function (joint) {
       var object = new THREE.Object3D();
@@ -557,12 +646,13 @@
       var parts = { bone: null, node: null };
 
       if (joint.pivot) {
-        /* 纯变换节点:画个小八面体当把手。它和别的把手一样**选中才现**(见 highlight),
-           而且拖它等于"整体搬运 bbox"(见 onPointerDown 里的 kind = "body" 分支)——
+        /* 纯变换节点:画个八面体当把手。它和别的把手一样**选中才现**(见 highlight)——
+           "只在选中时出现"是硬规则,不因为把它放大就变成常显:放大只是让它更醒目。
+           拖它等于"整体搬运 bbox"(见 onPointerDown 里的 kind = "body" 分支)——
            broot 自己既不旋转也不移动,它只是骨架顶层;人物的整体旋转是 hips 的事
            (转 hips 会带动脊柱与双腿,等于绕骨盆转一圈)。 */
         var marker = new THREE.Mesh(state.assets.geometries.pivot, state.assets.materials.pivot);
-        marker.scale.setScalar(0.05);
+        marker.scale.setScalar(PIVOT_RADIUS);
         marker.visible = false;
         marker.userData.joint = joint.name;
         marker.userData.part = "node";
@@ -579,7 +669,9 @@
          的关节)由 highlight 按选中态决定,与"拖动算旋转还是移动"是两套判定 ——
          两者曾经共用同一个判定,于是"改交互"顺手把配色也改掉。
          这里原来还留着一份 isJointLook/material 的计算结果,算完从没被用过,已删。 */
-      var geometry = app.models.geometry(figure.id, joint.name);
+      var rest = restFrames[joint.name];
+      var geometry = app.models.geometry(figure.id, joint.name, rest && rest.orientation);
+      if (geometry && geometry.getAttribute("aSide")) state.sided += 1;
       var bone = geometry
         ? new THREE.Mesh(geometry, state.assets.materials.bone)
         : new THREE.Object3D();
@@ -665,7 +757,6 @@
     });
     state.bbox.updateMatrixWorld(true);
     refreshBones();
-    refreshGround();
     return pose;
   }
 
@@ -684,23 +775,6 @@
       });
     });
     state.bones = list;
-  }
-
-  /* 影子与地面跟着 bbox 走:整体搬运时人和影子一起动 */
-  function refreshGround() {
-    if (!state.bbox) return;
-    if (state.shadow) {
-      state.shadow.position.x = state.bbox.position.x;
-      state.shadow.position.z = state.bbox.position.z;
-    }
-    if (state.ground) {
-      state.ground.position.x = state.bbox.position.x;
-      state.ground.position.z = state.bbox.position.z;
-    }
-    if (state.grid) {
-      state.grid.position.x = state.bbox.position.x;
-      state.grid.position.z = state.bbox.position.z;
-    }
   }
 
   /* 选中态的两个视觉出口:零件网格换材质、把手球现形。
@@ -735,6 +809,8 @@
         parts.bone.material = boneOn ? state.assets.materials.selected : boneBase;
       }
       if (parts.node) {
+        /* 把手球只在"这个关节就是当前选中"时现身 —— broot 那颗八面体走同一条规则:
+           它放大到 2 倍之后**仍然不该常显**,否则画面上会一直挂着一颗蓝色八面体。 */
         parts.node.visible = on;
         var nodeBase = joint.pivot ? state.assets.materials.pivot : state.assets.materials.node;
         parts.node.material = on ? state.assets.materials.selected : nodeBase;
@@ -1003,17 +1079,29 @@
      目标点取"手指在过该节点、与镜头平行的平面上的落点",再把屏幕位移原样加到节点原点上,
      于是节点跟着手指走;能不能走到由 IK 决定,走不到就是走不到(关节长度是硬的)。 */
   function moveNode(drag, clientX, clientY) {
-    if (!drag.plane || !drag.anchor || !drag.effectorStart) return 0;
+    if (!drag.plane || !drag.anchor || !drag.tip) return 0;
     var current = rayPlanePoint(clientX, clientY, drag.plane, new THREE.Vector3());
     if (!current) return 0;
 
-    var world = drag.effectorStart.clone().add(current.sub(drag.anchor));
-    var local = worldToBbox(world);
+    /* 目标 = 节点**当前实际位置**(drag.tip)+ 这一帧手指的位移。
+       关键在"当前实际位置"而不是"拖动开始时的位置":节点被关节限位挡住时(脚拖到
+       腿长够不着的位置),从起始位置起算会让目标一路累积到身体另一侧 —— 过了临界点
+       IK 会突然解出一个完全不同的姿态,真机上就是"拖脚时大腿和膝盖猛地跳一下"
+       (实测膝位移一步跳 400mm)。从节点实际位置起算之后,手指继续走也不会把目标
+       推得更远,走不到就是走不到(关节长度是硬的);而手指往回走时节点会立刻响应。 */
+    var shift = current.clone().sub(drag.anchor);
+    drag.anchor.copy(current);
+    var local = worldToBbox(drag.tip.clone().add(shift));
     var solved = app.ik.solve(state.angles, { effector: drag.joint, target: local });
     if (!solved.changed || !Object.keys(solved.changed).length) return 0;
 
     /* 本地先落一版,拖动才跟手;上层收到事件后会回灌一次同样的姿态,幂等 */
     applyPose(solved.angles);
+    /* 参照推到节点**实际**落点 —— 被限位挡住时它不会跟着手指跑。
+       用 IK 解出的 bbox 坐标换算,不去读 Object3D 的 matrixWorld
+       (那些节点的 matrixAutoUpdate 是 false,读到的会是上一帧)。 */
+    var landed = app.rig.jointPositions(solved.angles)[drag.joint].origin;
+    drag.tip = bboxToWorld(new THREE.Vector3(landed.x, landed.y, landed.z));
     app.events.emit("viewport:ik", { joint: drag.joint, angles: solved.changed });
     return 1;
   }
@@ -1031,6 +1119,13 @@
     return point.clone().applyMatrix4(scratchMatrix);
   }
 
+  /* 反向:bbox 局部 → 世界。拖节点时要用它把"IK 实际把节点放到了哪"换算回世界,
+     好当作下一帧的参照(见 moveNode)。 */
+  function bboxToWorld(point) {
+    if (!state.bbox) return point;
+    return point.clone().applyMatrix4(state.bbox.matrixWorld);
+  }
+
   function moveBody(dx, dy) {
     var distance = state.camera.position.distanceTo(state.controls.target);
     var perPixel = 2 * Math.tan(state.camera.fov * Math.PI / 360) * distance / Math.max(1, state.canvas.clientHeight);
@@ -1043,7 +1138,6 @@
     state.bbox.position.addScaledVector(right, dx * perPixel);
     state.bbox.position.addScaledVector(forward, -dy * perPixel);
     state.bbox.updateMatrixWorld(true);
-    refreshGround();
     app.events.emit("viewport:body", {
       position: { x: state.bbox.position.x, y: state.bbox.position.y, z: state.bbox.position.z }
     });
@@ -1065,6 +1159,31 @@
    */
 
   function pointerCount() { return Object.keys(state.pointers).length; }
+
+  /* ---------- "视图正在被操作"的信号 ----------
+   *
+   * 用户要求:「操作摄像机(视图)的时候,都显示:拖拽旋转视图,双指放缩,双指拖拽平移」。
+   * 这句话该由状态行来说,所以视口只负责回答"现在算不算在操作视图"。
+   *
+   * 判据只有两条,都是"这串手势归相机"的既有结论,不另立一套:
+   *   · `state.orbiting` —— 单指落在空白处、并且真的拖过了 TAP_SLOP(见 onPointerMove);
+   *   · `pointerCount() > 1` —— 两根手指按着,即捏合缩放 / 双指平移(见 onPointerDown)。
+   *
+   * **纯点一下空白不算**。那也会走到"空白"分支上,但它只是取消选择,
+   * 若据此点亮相机提示,表现就是"手指一落状态行闪一下、抬手又闪回来"(真机上是可见的抖动)。
+   * 所以只在"拖动了"或"两根手指"时才发事件,并且**只在值真的变化时发一次**
+   * (指针每动一像素都发一遍会让状态行反复重写同一句话)。 */
+  function setCameraActive(next) {
+    next = Boolean(next);
+    if (state.cameraActive === next) return false;
+    state.cameraActive = next;
+    app.events.emit("viewport:camera", { active: next });
+    return true;
+  }
+
+  function syncCameraActive() {
+    return setCameraActive(pointerCount() > 1 || state.orbiting);
+  }
 
   function freezeControls() {
     if (!state.controls || state.controlsFrozen) return;
@@ -1091,9 +1210,11 @@
     state.pointers[event.pointerId] = { x: event.clientX, y: event.clientY };
     if (pointerCount() > 1) {
       /* 第二根手指落下:这一串操作属于相机(捏合缩放 / 双指平移)。
-         正在进行的关节拖拽就地停止 —— 姿态停在当前值上,不回滚、不抖。 */
+         正在进行的关节拖拽就地停止 —— 姿态停在当前值上,不回滚、不抖。
+         同时告诉上层"视图正在被操作",状态行改说相机那三件事。 */
       state.blankTap = null;
       abortJointDrag();
+      syncCameraActive();
       return;
     }
 
@@ -1135,7 +1256,9 @@
     if (kind === "bone") {
       drag.lever = leverFor(hit.joint, origin);
     } else {
-      drag.effectorStart = origin;
+      /* tip = 节点此刻的实际位置,拖动期间每帧往它上面推(见 moveNode)。
+         目标是"从 tip 出发、加上手指这一帧的位移",而不是"从起始位置加上累计位移"。 */
+      drag.tip = origin;
       drag.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(cameraForward(new THREE.Vector3()).normalize(), origin);
       drag.anchor = rayPlanePoint(event.clientX, event.clientY, drag.plane, new THREE.Vector3());
       if (!drag.anchor) {
@@ -1161,11 +1284,17 @@
     var drag = state.dragging;
 
     /* 拖到一半又落下一根手指 → 改判为相机手势,关节立刻停手 */
-    if (drag && pointerCount() > 1) { abortJointDrag(); return; }
+    if (drag && pointerCount() > 1) { abortJointDrag(); syncCameraActive(); return; }
 
     if (state.blankTap) {
       var gap = Math.abs(event.clientX - state.blankTap.x) + Math.abs(event.clientY - state.blankTap.y);
-      if (gap > TAP_SLOP) state.blankTap = null;   /* 动了就不是点击,别清选择 */
+      if (gap > TAP_SLOP) {
+        /* 动了就不是点击,别清选择。而且这一串从此归相机("单指拖空白转视角"),
+           到抬手为止都算"在操作视图" —— 状态行据此改说相机那三件事。 */
+        state.blankTap = null;
+        state.orbiting = true;
+        syncCameraActive();
+      }
     }
 
     if (!drag) return;
@@ -1216,9 +1345,12 @@
 
   function onPointerUp(event) {
     if (event && event.pointerId !== undefined) delete state.pointers[event.pointerId];
-    if (pointerCount() > 0) return;      /* 还有手指按着,这一串手势没结束 */
+    if (pointerCount() > 0) { syncCameraActive(); return; }   /* 还有手指按着,这一串手势没结束 */
+    state.orbiting = false;
     state.dragging = null;
     thawControls();
+    /* 手势收尾:两根手指抬掉一根、或最后一根抬起来,都到这里 —— 视图提示随之收起 */
+    setCameraActive(false);
     if (!state.blankTap) return;
     var tap = state.blankTap;
     state.blankTap = null;
@@ -1285,6 +1417,9 @@
 
   function rebuild() {
     disposeSceneContents();
+    /* 重建会把指针表清空,"视图正在被操作"这件事也跟着归零 —— 顺手把提示收掉 */
+    state.orbiting = false;
+    setCameraActive(false);
     buildAssets();
     buildScene();
     buildRig();
@@ -1296,14 +1431,8 @@
 
   function disposeSceneContents() {
     /* 几何体与材质都由 state.assets 统一持有,这里只解场景自身的引用。
-       例外是网格辅助线:它的几何体与材质是就地新建的,要显式释放。 */
-    if (state.grid) {
-      if (state.grid.geometry) state.grid.geometry.dispose();
-      if (state.grid.material) state.grid.material.dispose();
-    }
-    state.grid = null;
-    state.ground = null;
-    state.shadow = null;
+       例外是环境球:它的几何体与材质都是就地新建的,要显式释放。 */
+    disposeEnvironment();
     state.boxHelper = null;
     state.scene = null;
     state.camera = null;
@@ -1325,8 +1454,6 @@
     /* 这里**不碰** controls.target:目标只能由"平移"和"适配屏幕"改(规则 1/3),
        逐帧同步回人物会把平移抹掉,也会让绕转起点变得不可预测。 */
     if (state.controls) state.controls.update();
-    /* 正反着色开着才需要逐帧同步角色朝向(搬运只改位置、不改朝向,但出口留在这里最省心) */
-    if (state.mask && state.mask.uniforms.uMaskOn.value > 0.5) syncMaskDirection();
     state.renderer.render(state.scene, state.camera);
   }
 
@@ -1357,7 +1484,7 @@
         alpha: false,
         preserveDrawingBuffer: true
       });
-      renderer.setClearColor(THEMES[themeName].background, 1);
+      renderer.setClearColor(THEMES[themeName].env.sky, 1);
       if ("outputEncoding" in renderer && THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
       state.renderer = renderer;
 
@@ -1468,7 +1595,6 @@
     state.bbox.position.set(0, 0, 0);
     state.bbox.quaternion.identity();
     state.bbox.updateMatrixWorld(true);
-    refreshGround();
     app.events.emit("viewport:body", { position: { x: 0, y: 0, z: 0 } });
     return body();
   }
@@ -1536,10 +1662,15 @@
 
   /* 按目标分辨率出图:临时改绘制缓冲,取完立刻还原并重画一帧。
      生图要的是长边 768 以上的干净图,屏幕上那块画布太小。 */
-  function captureAt(width, height) {
+  /* 截一张指定尺寸的渲染图。第三个参数只管编码:默认 PNG(无损),
+     要交给模型时用 JPEG —— 原因在 app.js 的 captureSquare 里写清楚了。 */
+  function captureAt(width, height, encoding) {
     if (!ready()) throw new Error(text("3D 视口不可用,无法截图", "The 3D viewport is unavailable, so it cannot be captured"));
     var targetWidth = Math.max(64, Math.round(Number(width) || 768));
     var targetHeight = Math.max(64, Math.round(Number(height) || 1024));
+    var options = encoding || {};
+    var format = options.format === "image/jpeg" ? "image/jpeg" : "image/png";
+    var quality = typeof options.quality === "number" ? options.quality : 0.92;
     var restoreWidth = state.container.clientWidth;
     var restoreHeight = state.container.clientHeight;
     var restoreAspect = state.camera.aspect;
@@ -1549,7 +1680,7 @@
     state.camera.aspect = targetWidth / targetHeight;
     state.camera.updateProjectionMatrix();
     renderFrame();
-    var dataUrl = state.canvas.toDataURL("image/png");
+    var dataUrl = format === "image/jpeg" ? state.canvas.toDataURL(format, quality) : state.canvas.toDataURL("image/png");
 
     state.camera.aspect = restoreAspect;
     state.camera.updateProjectionMatrix();
@@ -1559,7 +1690,7 @@
     return {
       dataUrl: dataUrl,
       imageBase64: dataUrl.replace(/^data:[^,]+,/, ""),
-      mime: "image/png",
+      mime: format,
       width: targetWidth,
       height: targetHeight,
       restored: { width: restoreWidth, height: restoreHeight }
@@ -1659,9 +1790,10 @@
     setSelectedJoint: setSelectedJoint,
     setMode: setMode,
     mode: function () { return state.mode; },
-    /* 正反着色:纯诊断视图,不碰姿态数据、不碰光照与主题 */
+    /* 正反着色:三档循环(无 / 白灰 / 红绿),纯显示视图,不碰姿态数据、不碰光照与主题 */
     setFrontBackMask: setFrontBackMask,
     frontBackMask: frontBackMask,
+    maskMode: maskMode,
     maskInfo: maskInfo,
     setTheme: function (name) {
       themeName = name === "dark" ? "dark" : "light";

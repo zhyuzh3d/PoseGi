@@ -23,6 +23,10 @@
 .button-secondary { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
 .button + .button { margin-left: 8px; }
 .button[disabled] { opacity: .5; }
+/* 必需的:[hidden] 的浏览器默认 display:none 会被上面 .button 的 display 盖掉,
+   于是"藏起来的按钮"照旧占一行(翻译设置里的「停用」踩过这个坑,
+   与 stage-fallback / 取消生成按钮是同一条规矩)。 */
+.button[hidden] { display: none; }
 
 .chip {
   min-height: 32px; padding: 5px 13px;
@@ -36,17 +40,28 @@
 .modal-layer { position: fixed; z-index: 120; left: 0; right: 0; top: 0; bottom: 0; }
 .modal-backdrop { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: rgba(20,22,28,.42); }
 
+/* 弹窗(所有 sheet 与居中确认框都走这一个类)与顶栏同一套毛玻璃:
+   半透明底 + 背后模糊 + 一道亮边。2026-09-25 用户要求:
+   「所有弹窗的背景都改为和顶部标题栏一样的毛玻璃透明效果」。
+   撑住可读性的是后面那层 .modal-backdrop —— 它先把 3D 场景压暗压平,
+   半透明面板才既有玻璃感、字又读得清;只用毛玻璃而不压暗背景,文字会和场景糊在一起。
+   老 WebView 只认 -webkit- 前缀版,两条都写;不支持 backdrop-filter 的设备
+   退回半透明纯色底(--glass 本身就是半透明色),文字照样读得清。 */
 .modal-sheet {
   position: absolute; left: 0; right: 0; bottom: 0;
   max-height: 76vh;
   display: flex; flex-direction: column;
   padding: 6px 14px calc(14px + var(--safe-bottom)) 14px;
-  background: var(--surface-strong);
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-bottom: 0;                      /* 贴着屏幕底边的那一条不画线 */
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  box-shadow: var(--glass-shadow);
 }
 
-.modal-sheet.centered { top: 50%; bottom: auto; transform: translateY(-50%); left: 18px; right: 18px; border-radius: var(--radius-lg); }
+.modal-sheet.centered { top: 50%; bottom: auto; transform: translateY(-50%); left: 18px; right: 18px; border-radius: var(--radius-lg); border-bottom: 1px solid var(--glass-line); }
 
 .sheet-handle { flex: 0 0 auto; width: 36px; height: 4px; margin: 4px auto 8px auto; border-radius: 2px; background: var(--line-strong); }
 
@@ -56,7 +71,24 @@
 .eyebrow { display: block; color: var(--accent); font-size: 11px; font-weight: 600; }
 
 .modal-content { flex: 1 1 auto; overflow-y: auto; padding: 10px 0; }
-.modal-actions { flex: 0 0 auto; padding-top: 8px; border-top: 1px solid var(--line); }
+.modal-actions { flex: 0 0 auto; display: flex; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
+
+/* 弹层底部那排按钮里,主按钮吃满剩余宽度,取消按钮按内容宽。
+   下面这条 [hidden] 是**必需的**:.button 是 inline-flex,
+   作者样式里的 display 会盖过浏览器默认的 [hidden]{display:none} ——
+   取消按钮于是"藏不起来",一直挂在生成弹窗右边(stage-fallback 踩过同一个坑)。 */
+.modal-actions > .button-block { flex: 1 1 auto; }
+.modal-actions > [data-cancel-generate] { flex: 0 0 auto; margin-left: 8px; }
+/* 底部那排里的图标按钮(生成弹窗右下的「模型列表」):宽度自适应 = 只吃图标自己
+   那么宽,不参与主按钮的伸展。它和主按钮之间的 8px 由 .button + .button 给。 */
+.modal-actions > .button-icon { flex: 0 0 auto; padding: 8px 14px; }
+.modal-actions > .button-icon i { font-size: 14px; }
+.modal-actions [hidden] { display: none; }
+
+/* 弹层没有底部动作时,这一条整体收起(ui.openSheet 会把 hidden 置上)。
+   同样要显式写:上面那条 display:flex 会盖过 [hidden]{display:none},
+   不写的话每个弹层底部都会多出一道空的分隔线与一片余白。 */
+.modal-actions[hidden] { display: none; }
 
 .sheet-note { margin: 10px 0 0 0; color: var(--muted); font-size: 12.5px; }
 
@@ -71,8 +103,305 @@
 .button-row { display: flex; justify-content: flex-end; margin-top: 14px; }
 .button-row .button + .button { margin-left: 8px; }
 
+/* ---------- 表单零件 ----------
+   整块表单都在底部 sheet 里,所以输入控件的底色用 --surface-strong(比玻璃面板实一点):
+   毛玻璃面板本身是半透明的,输入框也跟着半透明的话,打进去的字会和背后的场景糊在一起。 */
+.section-label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; }
+
+.field { display: block; min-width: 0; margin-bottom: 12px; }
+.field > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; }
+.field > span strong { float: right; color: var(--ink); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.field input, .field textarea {
+  display: block; width: 100%; min-width: 0; min-height: 38px; padding: 8px 10px;
+  border: 1px solid var(--line-strong); border-radius: 9px;
+  background: var(--surface-strong); color: var(--ink);
+}
+.field textarea { min-height: 72px; resize: vertical; font-size: 12px; line-height: 1.5; }
+.field input[type="range"] { min-height: 28px; padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
+.field input::placeholder, .field textarea::placeholder { color: var(--muted); opacity: .7; }
+.field-help { margin: 0 0 12px 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+/* 接口模式是界面上唯一用原生 select 的控件(2026-09-26 用户要求改成下拉)。
+   原生外观在深色主题里是一块系统配色的浅底,所以外观自己画。
+   箭头交给 .select-wrap 的伪元素:select 本身不能上伪元素,而背景图里的颜色
+   吃不到主题变量(内联 SVG 只能写死颜色,主题一换就露馅)。 */
+.field select.select-input {
+  display: block; width: 100%; min-width: 0; min-height: 38px;
+  padding: 8px 34px 8px 10px;
+  border: 1px solid var(--line-strong); border-radius: 9px;
+  background-color: var(--surface-strong); color: var(--ink);
+  font-family: inherit; font-size: 13px;
+  -webkit-appearance: none; appearance: none;
+}
+.select-wrap { position: relative; display: block; }
+.select-wrap::after {
+  content: ""; position: absolute; top: 50%; right: 12px; margin-top: -3px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 6px solid var(--muted);
+  pointer-events: none;
+}
+/* 选中项那句说明紧贴控件,别用 .field-help 默认的 12px 底距把表单撑散 */
+.field > .field-help { margin: 6px 0 0; }
+/* 这一条**必须显式写**:上面 .field 的 display:block 会盖掉浏览器默认的
+   [hidden]{display:none},于是"藏起来的字段"照旧占一行 —— CVP 不需要模型 ID,
+   那一行要能真的消失(与 .button[hidden] / .modal-actions[hidden] 同一条规矩)。 */
+.field[hidden] { display: none; }
+
+/* 范围行:标签右边挂当前值,下面还有一句口径说明(例如"100 为中性") */
+.range-field > span { margin-bottom: 2px; }
+.range-hint { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+
+/* 密钥框:输入框 + 眼睛 / 粘贴两个按钮拼成一条 */
+.secret-input { display: flex; }
+.secret-input input { border-radius: 9px 0 0 9px; }
+.secret-input button {
+  flex: 0 0 36px; min-height: 38px;
+  border: 1px solid var(--line-strong); border-left: 0;
+  background: var(--surface-strong); color: var(--muted);
+}
+.secret-input button:last-child { border-radius: 0 9px 9px 0; }
+
+/* 可选整行:把三行按钮平分成一列,用于作品库新建表单底部 */
+.sheet-actions { display: flex; margin-top: 12px; }
+.sheet-actions .button { flex: 1 1 auto; }
+.sheet-actions .button + .button { margin-left: 8px; }
+
+.form-actions { display: flex; margin-top: 14px; }
+.form-actions .button { flex: 1 1 auto; }
+.form-actions .button + .button { margin-left: 8px; }
+.form-actions i { margin-right: 6px; font-size: 11px; }
+
+.button-block { width: 100%; }
+
+.connection-status { margin: 10px 0 0 0; color: var(--muted); font-size: 11.5px; }
+.connection-status.is-error { color: var(--danger); }
+
+/* 高级参数:折叠起来,默认不占版面 */
+.advanced { margin-top: 10px; border-top: 1px solid var(--line); }
+.advanced summary { padding: 11px 0; color: var(--muted); font-size: 12px; cursor: pointer; }
+.advanced summary:focus { outline: none; }
+.advanced .field { margin-top: 8px; }
+
+.chip-row { display: flex; flex-wrap: wrap; }
+.chip-row > .chip { margin: 0 6px 6px 0; }
+
+/* ---------- 横向 tab 组(分段控件) ----------
+   2026-09-25 用户要求:语言与"正反着色"三档都改成横向 tab。
+   外面那层是轨道(浅底 + 圆角),选中的那一格填 accent —— 一眼能看出"当前是哪一个",
+   而不是三个各自独立的按钮。旧 WebView 的 flex gap 不生效,格子之间用相邻兄弟 margin。 */
+.tab-row {
+  display: flex; margin-bottom: 10px; padding: 3px;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: var(--surface-strong);
+}
+.tab-button {
+  flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 4px 6px;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 9px;
+  background: transparent; color: var(--ink);
+  font-size: 12.5px; white-space: nowrap; overflow: hidden;
+}
+.tab-button + .tab-button { margin-left: 3px; }
+.tab-button i { margin-right: 5px; font-size: 11px; }
+.tab-button.is-on { background: var(--accent); color: #fff; font-weight: 600; }
+.tab-button.is-on i { color: #fff; }
+.tab-button i.is-danger { color: var(--danger); }
+.tab-button.is-on i.is-danger { color: #fff; }
+.tab-hint { margin: 0 0 4px 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+
+/* ---------- 开关(模型卡上的「需要翻译为英文」) ----------
+   原生 checkbox 铺满整块但完全透明:点哪儿都能拨,而且不引任何图标字体。 */
+.switch-row { display: flex; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line); }
+.switch-text { flex: 1 1 auto; min-width: 0; }
+.switch-text strong { display: block; font-size: 12px; font-weight: 600; }
+.switch-text small { display: block; margin-top: 2px; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.switch { position: relative; flex: 0 0 auto; width: 44px; height: 26px; margin-left: 10px; }
+.switch input { position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0; opacity: 0; }
+.switch-track {
+  display: block; width: 44px; height: 26px; border-radius: 13px;
+  background: var(--line-strong); transition: background .16s linear;
+}
+.switch-thumb {
+  position: absolute; left: 3px; top: 3px; width: 20px; height: 20px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.35); transition: transform .16s ease-out;
+}
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked ~ .switch-thumb { transform: translateX(18px); }
+
+/* ---------- 中英翻译(软件设置里那一行) ---------- */
+.translate-card {
+  display: flex; align-items: center; margin-bottom: 10px; padding: 11px 12px;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: var(--surface-strong);
+}
+.translate-info { flex: 1 1 auto; min-width: 0; }
+.translate-info strong { display: block; font-size: 12.5px; font-weight: 600; }
+.translate-info small { display: block; margin-top: 3px; color: var(--muted); font-size: 10.5px; word-break: break-all; }
+.translate-card .button { flex: 0 0 auto; margin-left: 10px; min-height: 32px; padding: 5px 12px; font-size: 12px; }
+
+/* 作品编辑界面里的译文块 */
+.translate-block { margin: 4px 0 12px 0; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface-strong); }
+.translate-block .section-label { margin-bottom: 4px; }
+.translate-text { margin: 0; color: var(--ink); font-size: 12.5px; line-height: 1.5; word-break: break-word; }
+.translate-text.is-empty { color: var(--muted); font-size: 11.5px; }
+.translate-text.is-empty + .button-row { margin-top: 8px; }
+.translate-text.is-empty + .button-row .button { min-height: 32px; padding: 5px 12px; font-size: 12px; }
+
+/* 只读的"说明性"选择行(翻译模型的接口模式锁死 CVP,摆出来是为了对齐视觉,不给点) */
+.choice-row.static { opacity: .8; }
+.choice-row.static.is-selected { border-color: var(--line-strong); background: var(--surface-strong); }
+.choice-row.static.is-selected strong { color: var(--ink); }
+
+/* 选择列表(接口模式 / 语言):每行一个大按钮,选中的那行加边框与底色。
+   刻意不用原生 select —— 它在旧 WebView 里的样式不跟着主题走。 */
+.choice-list { display: block; }
+.choice-row {
+  display: block; width: 100%; margin-bottom: 6px; padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: 11px;
+  background: var(--surface-strong); color: var(--ink); text-align: left;
+}
+.choice-row strong { display: block; font-size: 13px; }
+.choice-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.choice-row.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.choice-row.is-selected strong { color: var(--accent-deep); }
+
+/* ---------- 模型卡列表(模型设置) ----------
+   一张卡 = 可点的信息区 + 底部一行操作。点信息区就是"换用它生图",所以那一块必须整块可点。 */
+.model-list { display: block; }
+.model-card {
+  margin-bottom: 9px; overflow: hidden;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: var(--surface-strong);
+}
+.model-card.is-active { border-color: var(--accent); }
+.model-pick { display: block; width: 100%; padding: 11px 12px; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.model-line { display: flex; align-items: center; }
+.model-line strong { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+.model-active {
+  flex: 0 0 auto; margin-left: 8px; padding: 1px 8px; border-radius: 9px;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 600;
+}
+.model-sub { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; word-break: break-all; }
+.model-actions { display: flex; align-items: center; padding: 0 8px 9px 8px; }
+.model-actions .button { flex: 1 1 auto; min-height: 32px; padding: 5px 10px; font-size: 12px; }
+.model-actions .icon-button { margin-left: 6px; }
+
+/* ---------- 作品列表 ----------
+   列表页没有"新增"按钮了(2026-09-25 用户要求:入口收到右上角菜单里),
+   所以这里不再有 .gallery-tools 那一排。 */
+.gallery-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+.art-card { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-strong); }
+.art-open { display: block; width: 100%; min-height: 92px; padding: 10px; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.art-current {
+  display: inline-block; margin-bottom: 6px; padding: 1px 7px; border-radius: 9px;
+  background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 600;
+}
+/* 预览区里放的是提示词。给一个固定高度 + 裁切:一件作品的描述长短差很远,
+   不裁的话两列网格会被最长的那条撑出一堆空白。 */
+.art-prompt {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; min-height: 46px;
+  font-size: 11.5px; line-height: 1.45;
+}
+.art-prompt em { color: var(--muted); }
+.art-badge { display: block; margin-top: 8px; color: var(--muted); font-size: 10.5px; }
+.art-meta { padding: 8px 9px; border-top: 1px solid var(--line); }
+.art-title { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.art-date { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+.art-actions { display: flex; align-items: center; margin-top: 8px; }
+.art-actions .button { flex: 1 1 auto; min-height: 32px; padding: 5px 10px; font-size: 12px; }
+.art-actions .icon-button { margin-left: 4px; }
+
+.empty-state { padding: 34px 12px; color: var(--muted); text-align: center; }
+.empty-state i { display: block; margin-bottom: 12px; font-size: 28px; }
+.empty-state strong { display: block; margin-bottom: 6px; color: var(--ink); }
+.empty-state p { margin: 0; font-size: 12px; line-height: 1.5; }
+
+/* ---------- 使用说明 ---------- */
+.help-copy { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.help-copy h3 { margin: 16px 0 8px 0; color: var(--ink); font-size: 13px; }
+.help-copy h3:first-child { margin-top: 0; }
+.help-list { display: block; }
+.help-line { display: flex; align-items: flex-start; }
+.help-line + .help-line { margin-top: 10px; }
+.help-icon { flex: 0 0 auto; width: 30px; padding-top: 1px; color: var(--accent); font-size: 14px; }
+.help-line > div { flex: 1 1 auto; min-width: 0; }
+.help-line strong { display: block; color: var(--ink); font-size: 12px; font-weight: 600; }
+.help-line p { margin: 2px 0 0 0; font-size: 11.5px; line-height: 1.55; }
+
+/* ---------- 软件信息 ---------- */
+.about-brand { display: flex; align-items: center; margin: 4px 0 14px 0; }
+.about-brand strong { font-size: 20px; }
+.about-brand .brand-mark { width: 38px; height: 38px; margin-right: 10px; font-size: 18px; }
+.about-meta { color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.about-link { width: 100%; margin-top: 14px; text-decoration: none; }
+.about-link i { margin-right: 7px; font-size: 14px; }
+
+/* ---------- 成图全屏查看 ----------
+   整层 fixed 铺满视口,独立于 .app-shell(那是 flex 列,住进去会被父级尺寸约束)。
+   用四边写而不是 inset:Chrome 83 不认 inset 简写。
+   层级安排:预览 300 > 弹层 120 / 确认框 340 > 预览 300 / 提示条 400 最上 ——
+   删除确认框必须是"盖在预览之上"的,否则在全屏里点删除会看不到确认框。 */
+.render-preview {
+  position: fixed; z-index: 300;
+  left: 0; right: 0; top: 0; bottom: 0;
+  display: flex; flex-direction: column;
+  background: #090a0d; color: #fff;
+  touch-action: none;
+}
+
+/* 同上:[hidden] 必须显式写,display:flex 会盖过浏览器默认的 display:none */
+.render-preview[hidden] { display: none; }
+
+.render-preview-stage {
+  position: relative; flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; touch-action: none;
+}
+
+.render-preview-stage img {
+  display: block; width: auto; height: auto;
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none; -webkit-user-drag: none;
+}
+
+.render-preview-hint {
+  position: absolute; left: 0; right: 0;
+  bottom: calc(66px + var(--safe-bottom));
+  text-align: center; color: rgba(255,255,255,.6); font-size: 10.5px;
+  pointer-events: none;
+}
+
+/* 工具条浮在底部中间:三颗按钮,拇指够得到。毛玻璃 + 一道亮边,
+   与顶栏同一套材料 —— 它同样压在图片上。 */
+.render-preview-tools {
+  position: absolute; z-index: 3;
+  left: 50%; bottom: calc(12px + var(--safe-bottom));
+  transform: translateX(-50%);
+  display: flex; align-items: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,.5); border-radius: 16px;
+  background: rgba(255,255,255,.22);
+  box-shadow: 0 6px 24px rgba(0,0,0,.38);
+  -webkit-backdrop-filter: blur(18px) saturate(1.45);
+  backdrop-filter: blur(18px) saturate(1.45);
+}
+
+.render-preview-tools .icon-button { width: 40px; height: 40px; color: #fff; }
+.render-preview-tools .icon-button i { font-size: 16px; }
+
+/* ---------- 层叠关系 ----------
+   确认框要盖过全屏看图(在全屏里点删除),提示条再盖过确认框。
+   三处都是"必须能看见"的东西,写在一起便于一眼看出谁在谁上面。 */
+.confirm-layer { z-index: 340; }
+
 .toast-stack {
-  position: fixed; z-index: 200; left: 14px; right: 14px;
+  position: fixed; z-index: 400; left: 14px; right: 14px;
   bottom: calc(80px + var(--safe-bottom));
   display: flex; flex-direction: column; align-items: center;
   pointer-events: none;

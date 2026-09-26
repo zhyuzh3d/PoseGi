@@ -48,12 +48,35 @@
     throw new Error("这次要发送的数据有 " + Math.round(size / 1024) + " KB,超过宿主单次请求上限,请减小图片尺寸后重试");
   }
 
+  /* 网络授权:宿主按 origin 授权,没授权的 origin 第一次访问时它会弹一个原生确认框,
+     用户点"允许"之前请求一直挂着 —— 表现是 60 秒后报 "Hermit request timed out",
+     看起来像"设备连不上",其实什么都没发出去(2026-09-25 真机踩到过,见当日记忆)。
+     所以正式发请求之前显式要一次授权,弹框就落在用户刚点按钮的那一刻。
+     授权是按 origin 记的,同一个地址只弹一次;失败的(用户拒绝)不记,下次再问。 */
+  var authorizedOrigins = {};
+
+  async function authorizeNetwork(url) {
+    var bridge = current();
+    if (!bridge || !bridge.permissions || typeof bridge.permissions.request !== "function") return false;
+    var origin;
+    try { origin = new URL(url).origin; } catch (error) { return false; }
+    if (authorizedOrigins[origin]) return true;
+    try {
+      await bridge.permissions.request({ capability: "network", scope: origin });
+      authorizedOrigins[origin] = true;
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
   /* 网络请求:宿主可用时走原生网络,否则退回 fetch(仅开发用) */
   async function request(options) {
     app.utils.validateEndpoint(options.url);
     checkBudget(options);
     var headers = options.headers || {};
     if (current() || await awaitReady(800)) {
+      await authorizeNetwork(options.url);
       var params = {
         url: options.url,
         method: String(options.method || "GET").toUpperCase(),
@@ -156,10 +179,61 @@
     throw new Error("当前环境不能读取剪贴板,请长按输入框粘贴");
   }
 
+  /* 把视口截图存成一张真的图片文件,并把系统的「保存图片 / 保存到…」对话框拉起来。
+   *
+   * 为什么不能一步塞给 files.import:一张 1024 的 PNG 的 dataURL 有 230 KB 上下,
+   * 一次桥消息装不下(宿主 256 KiB 与自家 MESSAGE_CHARS 都会拦),所以走
+   * beginWrite → appendBytes(每次 ≤64 KiB)→ finishWrite 这条分块通道。
+   * 真正的"拉起保存"是最后那一下 files.export:它由宿主弹系统文件选择框,
+   * 用户可以存进相册 / 下载 / 任意目录 —— 那是宿主的能力,页面做不到。
+   *
+   * 浏览器开发环境没有宿主:直接给一个下载链接,行为对齐。 */
+  async function saveImage(shot, name) {
+    var bridge = current() || (await awaitReady(800) ? current() : null);
+    var parts = app.utils.dataUrlParts(shot && shot.dataUrl);
+    var fileName = String(name || "").trim() || ("posegi-" + Date.now() + ".png");
+    if (!bridge) {
+      var link = document.createElement("a");
+      link.href = shot.dataUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return { exported: true, logicalFileId: "", name: fileName, bytes: parts.bytes.length, fallback: true };
+    }
+    var handle = await bridge.files.beginWrite({ name: fileName, mime: parts.mime || "image/png" });
+    var chunk = Math.max(4096, Math.min(Number(handle.maxChunkBytes) || 65536, 65536));
+    var committed = false;
+    try {
+      for (var offset = 0; offset < parts.bytes.length; offset += chunk) {
+        await bridge.files.appendBytes({
+          writeId: handle.writeId,
+          chunkBase64: app.utils.bytesToBase64(parts.bytes.subarray(offset, offset + chunk))
+        });
+      }
+      var stored = await bridge.files.finishWrite({ writeId: handle.writeId });
+      committed = true;
+      var logicalFileId = String(stored && stored.logicalFileId || "");
+      var outcome = await bridge.files.export({ logicalFileId: logicalFileId });
+      return {
+        exported: Boolean(outcome && outcome.exported),
+        cancelled: Boolean(outcome && outcome.cancelled),
+        logicalFileId: logicalFileId,
+        name: fileName,
+        bytes: parts.bytes.length
+      };
+    } finally {
+      /* 只有"还没提交"才中止 —— 提交过之后句柄已经不在宿主的未完成表里了,
+         再 abort 只会得到一句"写入句柄不存在",把真正的错误盖掉。 */
+      if (!committed) await bridge.files.abortWrite({ writeId: handle.writeId }).catch(function () {});
+    }
+  }
+
   async function reportTheme() {
     if (!(current() || await awaitReady(500))) return;
-    var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    await current().appearance.reportTheme({ theme: dark ? "dark" : "light" }).catch(function () {});
+    /* 应用恒定深色(app.THEME),不再按系统偏好上报 —— 否则宿主外壳会按亮色画状态栏 */
+    var theme = app.THEME === "light" ? "light" : "dark";
+    await current().appearance.reportTheme({ theme: theme }).catch(function () {});
   }
 
   async function appReady() {
@@ -171,6 +245,7 @@
     current: current,
     available: available,
     awaitReady: awaitReady,
+    authorizeNetwork: authorizeNetwork,
     request: request,
     requestJson: requestJson,
     httpError: httpError,
@@ -178,6 +253,7 @@
     putData: putData,
     deleteData: deleteData,
     pickImage: pickImage,
+    saveImage: saveImage,
     clipboardRead: clipboardRead,
     reportTheme: reportTheme,
     appReady: appReady

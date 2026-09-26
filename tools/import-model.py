@@ -85,6 +85,20 @@ SOURCES = {
             "Arm.L_011": [("shoulder.L", 0.30), ("upperArm.L", 1e9)],
             "Arm.R_08": [("shoulder.R", 0.30), ("upperArm.R", 1e9)],
         },
+        # 站姿的"旋前旋后":绑定姿态的两只手是掌心朝侧面的(正面看只有一条窄边),
+        # 正面背面分不出来。这里把前臂绕自身长轴拧到掌心朝正前方(解剖学站姿)。
+        # 角度是用"掌面法线 = 手局部 ±X"这根材料轴扫出来的(见 build() 的说明)。
+        "twist": {"forearm.L": -91.1, "forearm.R": 91.0},
+        # 拇指:模型的掌部是一把光板扁铲,没有拇指。拿掌部网格本身缩一份转到侧面并进去。
+        # palm = 掌部的网格节点名 → 装到哪个关节。朝哪一侧不用配:见 add_thumbs 里的定向规则。
+        "thumb": {
+            "palm": {"Cube.163_Material_0": "hand.L",
+                     "Cube.169_Material_0": "hand.R"},
+            "scale": 0.52,      # 拇指长度 = 掌部长度的 52%
+            "angle": 20.0,      # 相对掌部长轴往外偏的角度(自然站姿下拇指只是微微张开)
+            "along": 0.12,      # 拇指根落在"距腕 12% 掌长"处
+            "inset": 0.34,      # 从掌的外缘往里嵌 34% 掌宽(留出重叠,接得上)
+        },
     },
 }
 
@@ -845,6 +859,98 @@ def posed_world(gltf, kids, parent, bind, aim):
     return posed
 
 
+# ---------------------------------------------------------------- 拇指
+def palm_frame(pts, origin):
+    """掌部的三个正交主轴:长轴 u(腕 → 指尖)、宽轴 v、薄轴 w(掌面法线)。
+
+    不引 numpy、也不做通用 PCA —— 这一步只需要"细长件"的一根长轴:
+    取相距最远的一对顶点即可(在扁铲上就是腕端与指尖),再在垂直于 u 的平面里
+    扫一圈,取投影散布最大的方向当宽轴。既稳又短。
+    """
+    far, pair = -1.0, (pts[0], pts[0])
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            d = sum((pts[i][k] - pts[j][k]) ** 2 for k in range(3))
+            if d > far:
+                far, pair = d, (pts[i], pts[j])
+    u = norm3(sub(pair[1], pair[0]))
+    c = centroid(pts)
+    if dot(u, sub(c, origin)) < 0:
+        u = [-v for v in u]
+    base = norm3(cross(u, [0.0, 0.0, 1.0]) if abs(u[2]) < 0.9 else cross(u, [1.0, 0.0, 0.0]))
+    side = cross(u, base)
+    best = None
+    for s in range(180):
+        t = math.pi * s / 180.0
+        d = [base[k] * math.cos(t) + side[k] * math.sin(t) for k in range(3)]
+        proj = [dot(sub(p, c), d) for p in pts]
+        spread = max(proj) - min(proj)
+        if best is None or spread > best[1]:
+            best = (d, spread)
+    v = best[0]
+    return u, v, norm3(cross(u, v))
+
+
+def add_thumbs(verts, cfg, frames, notes):
+    """把"拇指"并进手掌:拿掌部**自己的网格**缩一份、绕掌面法线转到侧前方,挪到掌的外缘。
+
+    手在这个模型里是一把扁铲(约 180 × 69 × 54 mm),没有拇指。做法是复制掌部网格本身,
+    所以拇指的曲面与手掌完全同源 —— 不会出现"两种画风拼在一起"的接缝。
+
+    全程在**世界坐标(米)**里做,位置就在"按骨切几何"之前。这样下游一行都不用改:
+    拇指作为掌部的三角一起被装进 hand.L / hand.R 那一桶。
+    """
+    out = list(verts)
+    scale = cfg.get("scale", 0.55)
+    angle = cfg.get("angle", 45.0)
+    along = cfg.get("along", 0.20)
+    inset = cfg.get("inset", 0.30)
+    items = {}
+    for tri, span, name in verts:
+        if name in cfg["palm"]:
+            items.setdefault(name, []).append((tri, span))
+    for name, joint in cfg["palm"].items():
+        parts = items.get(name)
+        if not parts:
+            notes.append("  拇指:模型里找不到掌部网格 %s,跳过" % name)
+            continue
+        pts = [p for tri, _ in parts for p, _ in tri]
+        origin = [frames[joint][i][3] for i in range(3)]
+        u, v, w = palm_frame(pts, origin)
+        # v 的符号是"算出来的",没有解剖含义:最大散布方向本身无符号,取到哪一端
+        # 取决于扫描的起点。这里按解剖学钉死 —— 自然站姿垂手,掌心朝内、**拇指朝前**,
+        # 而角色朝 +Z,所以拇指所在的那一端是 +Z。这一条同时被配套的 twist 交叉验证:
+        # 前臂绕长轴拧 ~90 度把掌心从"朝内"转到"朝前",同一个旋转把这里的 +Z 送到 +X,
+        # 于是最终站姿里拇指朝身体外侧 —— 正面看得到,正是要的效果。
+        if v[2] < 0:
+            v = [-x for x in v]
+            w = norm3(cross(u, v))
+        axis = lambda p: [dot(sub(p, origin), a) for a in (u, v, w)]
+        box = [[min(axis(p)[i] for p in pts), max(axis(p)[i] for p in pts)] for i in range(3)]
+        a0, a1 = box[0]
+        b0, b1 = box[1]
+        bc, cc = (box[1][0] + b1) / 2.0, (box[2][0] + box[2][1]) / 2.0
+        # 拇指根部落在"掌的外缘、距腕 20% 处";尖端按 angle 偏向侧前方
+        root = [origin[k] + u[k] * (a0 + along * (a1 - a0)) + v[k] * (b1 - inset * (b1 - b0)) + w[k] * cc
+                for k in range(3)]
+        hinge = [origin[k] + u[k] * a0 + v[k] * bc + w[k] * cc for k in range(3)]
+        tip = norm3([u[k] * math.cos(math.radians(angle)) + v[k] * math.sin(math.radians(angle))
+                     for k in range(3)])
+        turn = axis_angle(cross(u, tip), angle)
+
+        def place(p, hinge=hinge, root=root, turn=turn):
+            q = xf(turn, [scale * (p[k] - hinge[k]) for k in range(3)])
+            return [q[k] + root[k] for k in range(3)]
+
+        for tri, span in parts:
+            out.append(([(place(p), bone) for p, bone in tri], span, name))
+        notes.append("  拇指:%s 由掌部网格复制缩放 %.2f、外偏 %.0f 度(长 %.0f mm → %.0f mm),"
+                     "伸出方向 (%.2f, %.2f, %.2f) ← 应为 +Z(前),twist 后即 +X(外侧)"
+                     % (joint, scale, angle, (a1 - a0) * 1000, (a1 - a0) * scale * 1000,
+                        tip[0], tip[1], tip[2]))
+    return out
+
+
 # ---------------------------------------------------------------- 主流程
 def build(model_id, spec):
     gltf, raw, binoff = load(spec["file"])
@@ -964,6 +1070,11 @@ def build(model_id, spec):
 
     raw_frames = {name: to_metric(posed[frame_node[name]]) for name in names_order}
 
+    # --- 拇指:在"按骨切几何"之前把复制出来的掌部并进手腕,下游一行不用改 -----------
+    notes = []
+    if spec.get("thumb"):
+        verts = add_thumbs(verts, spec["thumb"], raw_frames, notes)
+
     # --- 切几何(第一遍):三角按归属骨丢进各关节,这一遍先不动坐标系 ----------------
     bucket = {name: {"idx": [], "verts": [], "map": {}} for name in names_order}
     orphan = {}
@@ -1050,7 +1161,6 @@ def build(model_id, spec):
     # --- 解剖学校正:骨架按人体测量学重排,网格跟着搬 ------------------------------
     # 放在这里是因为**下游全是从 frames 反推的**:offset / rest / length / radius 与
     # 每件网格的局部坐标都读 frames。改完 frames 的平移,后面一行都不用动。
-    notes = []
     if spec.get("anatomy", True):
         correct_anatomy(frames, bucket, children, spec, notes)
     else:
@@ -1069,6 +1179,16 @@ def build(model_id, spec):
             "length": 0.0,
             "radius": 0.05
         }
+    # --- 站姿的旋前旋后:让掌心朝正前方 -------------------------------------------
+    # 手是扁的(关节局部 55 × 215 × 68 mm),掌面法线就是局部 ±X。绑定姿态里两手的
+    # 掌心朝身体两侧 —— 正面看手是一条窄边,正反面分不出来。解剖学站姿要"掌心朝前".
+    # 旋前旋后是前臂绕自身长轴转,落在 rest 的 y 通道上;这里只改数值,网格仍在同一
+    # 个局部系里(rest 是基准,limit 记的是相对 rest 的增量,所以姿态窗口一点没变)。
+    # 左右符号相反是因为两只手的网格是镜像的:左手掌心在局部 +X 侧、右手在 -X 侧。
+    for name, deg in spec.get("twist", {}).items():
+        if name in table:
+            table[name]["rest"][1] = round(float(deg), 4)
+            notes.append("  站姿旋前旋后:%s 的 rest y 拧到 %.1f 度(掌心朝前)" % (name, deg))
     for name in names_order:
         kids_j = children.get(name, [])
         if kids_j:

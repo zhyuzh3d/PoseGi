@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f4f5f7">
+  <meta name="theme-color" content="#17191d">
   <title>PoseGi</title>
   <link rel="icon" href="./app/assets/icon.webp">
   <link rel="stylesheet" href="/__hermit/icons/fontawesome/css/all.min.css">
@@ -27,13 +27,15 @@
         <button class="icon-button" id="open-menu" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="app-menu" data-zh="打开菜单" data-en="Open menu" data-i18n-attr="aria-label"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
       </div>
       <div class="app-menu" id="app-menu" hidden>
-        <button data-menu="poses"><i class="fa-solid fa-person" aria-hidden="true"></i><span data-zh="姿态库" data-en="Poses">姿态库</span></button>
-        <button data-menu="results"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-zh="作品库" data-en="Results">作品库</span></button>
+        <button data-menu="newwork"><i class="fa-solid fa-plus" aria-hidden="true"></i><span data-zh="添加作品" data-en="Add artwork">添加作品</span></button>
         <div class="menu-divider"></div>
-        <button data-menu="models"><i class="fa-solid fa-cubes" aria-hidden="true"></i><span data-zh="生图接口" data-en="Image service">生图接口</span></button>
+        <button data-menu="results"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-zh="作品列表" data-en="Artwork list">作品列表</span></button>
+        <div class="menu-divider"></div>
+        <button data-menu="addmodel"><i class="fa-solid fa-plus" aria-hidden="true"></i><span data-zh="添加模型" data-en="Add model">添加模型</span></button>
+        <button data-menu="models"><i class="fa-solid fa-cubes" aria-hidden="true"></i><span data-zh="模型列表" data-en="Model list">模型列表</span></button>
         <button data-menu="preferences"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span data-zh="软件设置" data-en="Preferences">软件设置</span></button>
         <div class="menu-divider"></div>
-        <button data-menu="help"><i class="fa-solid fa-circle-question" aria-hidden="true"></i><span data-zh="使用说明" data-en="How it works">使用说明</span></button>
+        <button data-menu="help"><i class="fa-solid fa-circle-question" aria-hidden="true"></i><span data-zh="使用说明" data-en="How to use">使用说明</span></button>
         <button data-menu="about"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span data-zh="软件信息" data-en="About">软件信息</span></button>
       </div>
     </header>
@@ -50,11 +52,7 @@
          转轴就是骨头自己的轴,而骨的末端就在这根轴上,转它在屏幕上几乎不动
          (实测自转通道只有最强通道的 1~5%,而视口解算的丢弃线是 55%,它在第一道过滤里就被扔掉)。
          行程由该关节自己的 limit.y 决定(见 rig.jointRange),两端到头就是解剖边界,
-         写入仍然走 poser.setJointAngle → rig.clampJoint 这一个收口点。
-
-         版式:标题行只放关节名(它是"在拧哪儿"的答案,所以最显眼;轴名"自转"退成小字),
-         范围数字下移到滑杆两侧 —— 左边是窗口下限,右边是"当前值/上限"
-         (上限同时充当刻度的右端标注,不重复画一次)。 -->
+         写入仍然走 poser.setJointAngle → rig.clampJoint 这一个收口点。 -->
     <div class="twist-bar" id="twist-bar" hidden>
       <div class="twist-head">
         <span class="twist-joint" id="twist-name"></span>
@@ -67,13 +65,14 @@
       </div>
     </div>
 
+    <!-- 底部常驻按钮。取景已并进「工具」,所以这里只有五个。 -->
     <div class="dock" id="dock">
       <button class="dock-button" id="open-poses" type="button"><i class="fa-solid fa-person" aria-hidden="true"></i><span data-zh="姿态" data-en="Pose">姿态</span></button>
-      <button class="dock-button" id="open-joint" type="button"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span data-zh="关节" data-en="Joint">关节</span></button>
-      <button class="dock-button" id="toggle-move" type="button"><i class="fa-solid fa-hand" aria-hidden="true"></i><span data-zh="搬运" data-en="Move">搬运</span></button>
-      <button class="dock-button" id="frame-camera" type="button"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i><span data-zh="取景" data-en="Fit">取景</span></button>
-      <button class="dock-button" id="toggle-mask" type="button" aria-pressed="false"><i class="fa-solid fa-adjust" aria-hidden="true"></i><span data-zh="正反" data-en="Faces">正反</span></button>
-      <button class="dock-button dock-button-primary" id="open-generate" type="button"><i class="fa-solid fa-image" aria-hidden="true"></i><span data-zh="生成" data-en="Generate">生成</span></button>
+      <button class="dock-button" id="open-joint" type="button"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i><span data-zh="选取" data-en="Pick">选取</span></button>
+      <button class="dock-button" id="toggle-move" type="button"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i><span data-zh="工具" data-en="Tools">工具</span></button>
+      <button class="dock-button" id="toggle-render" type="button" aria-pressed="false"><i class="fa-solid fa-palette" aria-hidden="true"></i><span data-zh="渲染" data-en="Render">渲染</span></button>
+      <button class="dock-button" id="open-capture" type="button"><i class="fa-solid fa-camera" aria-hidden="true"></i><span data-zh="截图" data-en="Shot">截图</span></button>
+      <button class="dock-button dock-button-primary" id="open-generate" type="button"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span data-zh="生成" data-en="Generate">生成</span></button>
     </div>
   </div>
 
@@ -112,8 +111,19 @@
     </section>
   </div>
 
-  <!-- 作品库的挂载点:平时隐身,打开 sheet 时被搬进弹层里 -->
-  <div class="gallery-section" id="gallery-body"></div>
+  <!-- 成图全屏查看:独立的整屏层,双指放缩 / 拖动平移 / 双击复位,并在这里直接删除。
+       它刻意不放进 .app-shell —— 那是个 flex 列,住在里面会被父级尺寸约束住。 -->
+  <section class="render-preview" id="render-preview" role="dialog" aria-modal="true" aria-label="Image preview" hidden>
+    <div class="render-preview-stage" id="render-preview-stage">
+      <img id="render-preview-image" alt="" draggable="false">
+    </div>
+    <div class="render-preview-hint" id="render-preview-zoom"></div>
+    <div class="render-preview-tools" role="toolbar">
+      <button class="icon-button" id="render-preview-reset" type="button" data-zh="复位图片" data-en="Reset image" data-i18n-attr="aria-label"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
+      <button class="icon-button" id="render-preview-delete" type="button" data-zh="删除这张成图" data-en="Delete this image" data-i18n-attr="aria-label"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>
+      <button class="icon-button" id="render-preview-close" type="button" data-zh="关闭预览" data-en="Close preview" data-i18n-attr="aria-label"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </div>
+  </section>
 
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
@@ -128,12 +138,15 @@
   <script src="./app/core/rig.js"></script>
   <script src="./app/core/ik.js"></script>
   <script src="./app/platform/hermit.js"></script>
+  <script src="./app/services/assets.js"></script>
   <script src="./app/services/store.js"></script>
   <script src="./app/services/providers.js"></script>
+  <script src="./app/services/translate.js"></script>
   <script src="./app/services/image-engine.js"></script>
   <script src="./app/components/ui.js"></script>
   <script src="./app/components/viewport.js"></script>
   <script src="./app/components/gallery.js"></script>
+  <script src="./app/components/render-preview.js"></script>
   <script src="./app/components/settings.js"></script>
   <script src="./app/features/poser.js"></script>
   <script src="./app/features/figure.js"></script>

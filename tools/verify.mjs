@@ -98,6 +98,16 @@ for (const file of sourceFiles.filter((name) => name.endsWith(".css"))) {
 }
 
 /* 5. 跨模块契约:调用了但没导出 */
+/* 解析对象字面量之前,先把注释"抹成等长空格"。
+   为什么必须这么干:契约检查是按字符切对象的,它把**顶层逗号**当字段分隔符,
+   而注释里随手写的一个逗号会被当成字段分割 —— 于是那条注释之后紧跟的导出名
+   整段被吃掉,检查会报"未导出",可实际上人家明明导出了(viewport 的 setFrontBackMask
+   就这样被误判过一次)。抹成同长度空格而不是删掉,是为了让 match.index 与原文一一对应。 */
+function blankComments(source) {
+  return String(source)
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (line) => line.replace(/[^\n]/g, " "));
+}
 function objectKeys(source, start) {
   let depth = 0, end = start;
   for (let index = start; index < source.length; index += 1) {
@@ -136,7 +146,7 @@ const appFiles = [];
 
 const exported = new Map();
 for (const file of appFiles) {
-  const source = fs.readFileSync(file, "utf8");
+  const source = blankComments(fs.readFileSync(file, "utf8"));
   const locals = new Map();
   for (const match of source.matchAll(/(?:var|let|const)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{/g)) {
     locals.set(match[1], objectKeys(source, match.index + match[0].length - 1));
@@ -151,7 +161,7 @@ assert.ok(exported.size >= 12, `解析到的导出对象太少(${exported.size})
 
 const problems = [];
 for (const file of appFiles) {
-  const source = fs.readFileSync(file, "utf8");
+  const source = blankComments(fs.readFileSync(file, "utf8"));
   for (const match of source.matchAll(/app\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\.([A-Za-z0-9_$]+)\s*\(/g)) {
     const namespace = "app." + match[1];
     if (!exported.has(namespace)) continue;

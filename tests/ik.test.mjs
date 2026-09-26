@@ -92,7 +92,7 @@ const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
      关节原点上** —— 视口与命中的锚点取的就是关节原点,球心一偏锚点跟着偏,
      表现成"看着点在球上却掉进空地"。
      2026-09-25 实测过一次:模型那颗球心偏出 **47.4mm**,换算到设备上约 23px,
-     而屏幕容差(NODE_GRAB_PX)只有 33px ⇒ 球的外半边点不到。骨架按人体测量学
+     而屏幕容差(NODE_GRAB_PX)当时只有 33px ⇒ 球的外半边点不到。骨架按人体测量学
      校正后球心归零(球块质心 0.0mm),rig 里那份偏移补偿已删 —— 这里改成直接量。 */
   {
     const ikea = app.models.get("ikea");
@@ -265,6 +265,49 @@ const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
       }
     }
   }
+}
+
+/* 拖脚时膝盖不许跳。两骨闭式解里"膝朝轴线哪一边鼓"是一个一维自由度的选择:
+   余弦定理只定下膝到髋的距离,没说它绕"髋→目标"轴落在哪个方位。方位定错就会瞬间翻到
+   另一侧 —— 修复前实测:膝位移一次跳 460mm、末端残差 524mm、膝角被夹到 0.5°、整条腿锁死。
+   守三件事:
+     ① 连续拖:目标绕髋在矢状面里一步步转,相邻两步的膝位移不得出现跳变;
+     ② 膝必须始终待在矢状面里:侧向偏移不得随拖动累积(拿"被 IK 夹住之后的膝位"当方位
+        参考时,实测会一路漂到 225mm —— 膝盖横着撇出去);
+     ③ 膝盖能到的那片范围里,脚要真的到位。
+   递进模式(上一帧的解作起点)才是真实拖动的样子,视口就是这么喂的。 */
+{
+  const span = 0.66;                    /* 目标到髋的距离,压在腿长 0.8467 之内 ⇒ 腿是弯的 */
+  const hip = rig.frames(rig.defaultAngles())["thigh.L"].origin;
+  let pose = rig.defaultAngles();
+  let previous = null;
+  let worstStep = 0;
+  let worstSide = 0;
+  let worstError = 0;
+  /* 只走到 -10 度:再往上(髋前上方)需要前屈超过 120 度,超出生理范围,本来就够不到 */
+  for (let deg = -80; deg <= -10; deg += 2) {
+    const radians = deg * Math.PI / 180;
+    const target = {
+      x: hip.x,
+      y: hip.y + Math.sin(radians) * span,
+      z: hip.z + Math.cos(radians) * span
+    };
+    pose = ik.solve(pose, { effector: "foot.L", target }).angles;
+    const frames = rig.frames(pose);
+    const base = frames["thigh.L"].origin;
+    const knee = frames["shin.L"].origin;
+    const offset = { x: knee.x - base.x, y: knee.y - base.y, z: knee.z - base.z };
+    worstSide = Math.max(worstSide, Math.abs(offset.x));
+    worstError = Math.max(worstError, distance(frames["foot.L"].origin, target));
+    if (previous) worstStep = Math.max(worstStep, distance(offset, previous));
+    previous = offset;
+  }
+  assert.ok(worstStep < 0.05,
+    `拖脚时膝盖跳了 ${(worstStep * 1000).toFixed(1)}mm(应当是随目标连续移动的量级)`);
+  assert.ok(worstSide < 0.02,
+    `膝盖撇出了矢状面 ${(worstSide * 1000).toFixed(1)}mm(膝只能在这个平面里弯)`);
+  assert.ok(worstError < 0.02,
+    `膝盖够得到的范围里抬脚没到位,最差差 ${(worstError * 1000).toFixed(1)}mm`);
 }
 
 /* 目标超出腿长时,腿伸直去够,但绝不因此反关节,也不吐 NaN。

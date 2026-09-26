@@ -56,7 +56,7 @@ button { font: inherit; color: inherit; }
   border: 1px solid var(--glass-line);
   border-radius: var(--radius-lg);
   background: var(--glass);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--topbar-shadow);
   /* -webkit- 前缀在前:老 WebView 只认前缀版;两条都写,谁支持谁生效。
      不支持 backdrop-filter 的设备退回 --glass 的纯半透明底,文字照样读得清。 */
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
@@ -80,10 +80,14 @@ button { font: inherit; color: inherit; }
   /* 位置跟着卡片算:卡片底 = 顶栏上内边距 8 + 卡片高 46,再留 6 像素间隙 */
   position: absolute; right: 10px; top: calc(60px + var(--safe-top));
   min-width: 168px; padding: 6px;
-  background: var(--surface-strong);
-  border: 1px solid var(--line);
+  /* 和顶栏同一套毛玻璃(2026-09-25 用户要求"所有弹窗都改成毛玻璃")。
+     菜单下面就是 3D 场景,半透明底 + 背后模糊比实色底更像"浮在画面上的一层"。 */
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  box-shadow: var(--glass-shadow);
   pointer-events: auto;
 }
 
@@ -95,13 +99,15 @@ button { font: inherit; color: inherit; }
 }
 
 .app-menu button + button { margin-top: 2px; }
-.app-menu button i { width: 18px; color: var(--muted); }
+/* 菜单图标一律白色(2026-09-25 用户要求:「顶部标题栏右侧菜单:icon都要使用白色」)。
+   原来是 --muted:菜单浮在场景上,灰色图标在浅一点的画面上几乎看不清。
+   文字沿用 --ink(深色主题下本身就是近白色),只有图标单独拉成纯白。 */
+.app-menu button i { width: 18px; color: #fff; }
 .app-menu button span { flex: 1 1 auto; }
-.menu-divider { height: 1px; margin: 6px 4px; background: var(--line); }
-
-/* 作品库的挂载点:平时不占位,打开弹层时才被搬进去 */
-.gallery-section { display: none; }
-.gallery-section.is-mounted { display: block; }
+/* 菜单里的分组横线。原来用 --line,深色下和玻璃底只差几个色阶,
+   「添加作品」下面那条实测等于看不见(2026-09-26 用户报的)——
+   玻璃上的线要用 --glass-divider(灰白),不要用实色表面的 --line。 */
+.menu-divider { height: 1px; margin: 6px 4px; background: var(--glass-divider); }
 
 /* 顶栏不藏版本号。原来这里有一条 `@media (max-width:520px) { .brand small { display:none } }`,
    而手机宽度是 384 —— 于是**所有手机上都看不到版本号**(真机截图里顶栏只有 "P PoseGi")。

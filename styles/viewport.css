@@ -29,20 +29,22 @@
 
 .stage-fallback[hidden] { display: none; }
 
-/* 状态行就挂在场景底部、按钮条之上:不占位、不吃触摸 */
+/* 状态行挂在**顶栏卡片下面**:不占位、不吃触摸
+   (2026-09-25 用户要求从场景底部挪上来:「放到顶部标题栏下面位置(留竖向间距)」)。
+   间距怎么来的:顶栏卡片底 = safe-top + 上内边距 8 + 卡片高 46(见 base.css 的顶栏注释),
+   所以这里取 64 —— 正好留 10 像素竖向间距。卡片是绝对定位的浮层,这个数值就是唯一依据,
+   自检里有一条 checkStatusLine 直接量两者的矩形,免得改错位置没人发现。
+   为什么不再放底部:那条带子里已经有按钮条与自转滑杆,三样东西挤在一起,
+   状态行要么被抬走、要么被盖住(旧版为此专门写过一条 has-twist 的抬升规则,随这次搬家删掉)。 */
 .stage-caption {
   position: absolute;
   left: 14px; right: 14px;
-  bottom: calc(84px + var(--safe-bottom));
+  top: calc(64px + var(--safe-top));
   margin: 0; min-height: 16px;
   text-align: center;
   color: var(--muted); font-size: 11.5px;
   pointer-events: none;
 }
-
-/* 自转滑杆出现时把状态行抬到它上面 —— 两者都在按钮条上方那一条带子里,
-   不抬就叠在同一个位置(而状态行此刻正好在讲"拖动绕此关节旋转",被盖住最不该)。 */
-body.has-twist .stage-caption { bottom: calc(140px + var(--safe-bottom)); }
 
 /* 自转滑杆:一行,浮在按钮条之上,只在选中可转关节时出现。
    为什么用 fixed 浮层而不是布局里的一行:舞台要"除顶栏外占满屏幕"(有 stage() 探针在量),
@@ -93,11 +95,19 @@ body.has-twist .stage-caption { bottom: calc(140px + var(--safe-bottom)); }
 
 .dock > * { pointer-events: auto; }
 
+/* 底部按钮条。背景改走毛玻璃(2026-09-25 用户要求:「底部的按钮也都把背景改为毛玻璃效果」)——
+   它们正压在 3D 场景上,实色底会在这块画面里显出一排"贴纸",半透明才像浮在场景上的一层。
+   两个"打开着"的状态(is-on / -primary)仍然是实色 accent:那是开关状态的信号,
+   不能也被糊成半透明,否则分不出按下没按下。 */
+/* 六个按钮(2026-09-25 加了「截图」)要比五个时更省地方,所以最小宽度收到 52,
+   窄屏再收一档(见文件末尾的媒体查询)。宽度按内容走,不再固定 56。 */
 .dock-button {
   display: grid; place-items: center;
-  min-width: 56px; padding: 6px 9px;
-  border: 1px solid var(--line-strong); border-radius: 16px;
-  background: var(--surface); color: var(--ink);
+  min-width: 52px; padding: 6px 8px;
+  border: 1px solid var(--glass-line); border-radius: 16px;
+  background: var(--glass); color: var(--ink);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
   box-shadow: var(--shadow);
   font-size: 11px;
 }
@@ -125,6 +135,113 @@ body.has-twist .stage-caption { bottom: calc(140px + var(--safe-bottom)); }
 
 .joint-empty { color: var(--muted); font-size: 12.5px; }
 
-@media (max-width:400px) {
-  .dock-button { min-width: 52px; padding: 6px 7px; }
+/* ============ 底部 sheet 里的各类网格(姿态 / 选取 / 工具 / 生成) ============
+   一律 grid + 相邻兄弟 margin:旧 WebView 会丢弃 flex 的 gap(grid 的 gap 是支持的)。
+   这里只放"和 3D 舞台打交道"的那几个面板 —— 表单、模型卡、作品库在 components.css。 */
+
+/* ---------- 姿态:圆角正方形大按钮 ----------
+   Chrome 83 没有 aspect-ratio,所以先用 min-height 撑出近正方形的格子,
+   再用 @supports 给支持的设备换成真正的 1:1。两段都写:老设备上 @supports 判否时,
+   前一条 min-height 仍然生效,不会退化成一条被压扁的条。 */
+.pose-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+
+.pose-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 96px; padding: 8px 4px;
+  border: 1px solid var(--line-strong); border-radius: 16px;
+  background: var(--surface-strong); color: var(--ink);
+}
+
+@supports (aspect-ratio: 1 / 1) {
+  .pose-tile { min-height: 0; aspect-ratio: 1 / 1; }
+}
+
+.pose-tile i { font-size: 26px; color: var(--accent); }
+.pose-tile span { margin-top: 9px; font-size: 12.5px; font-weight: 600; }
+.pose-tile:active { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- 选取:上一个 / 下一个 / 对面 ----------
+   三个按钮等宽平分。i 的右边距就是它与文字的间距(flex gap 不能用)。 */
+.joint-nav { display: flex; margin-bottom: 12px; }
+.joint-nav .button { flex: 1 1 auto; min-height: 34px; padding: 6px 4px; font-size: 12px; }
+.joint-nav .button + .button { margin-left: 6px; }
+.joint-nav i { margin-right: 5px; font-size: 11px; }
+
+/* 面板中间那条横线:上面是当前关节的三条通道,下面是全部关节 */
+.sheet-divider { height: 1px; margin: 14px 0 12px 0; background: var(--line); }
+
+.pick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+
+.pick-tile {
+  min-height: 38px; padding: 5px 4px;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-strong); color: var(--ink);
+  font-size: 12px;
+}
+
+.pick-tile.is-on { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+/* ---------- 工具 / 渲染:带一行说明的分组 ---------- */
+.tool-group + .tool-group { margin-top: 14px; }
+
+.tool-row {
+  display: flex; align-items: center;
+  width: 100%; padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: var(--surface-strong); color: var(--ink);
+  text-align: left;
+}
+
+.tool-row + .tool-row { margin-top: 6px; }
+.tool-row i { flex: 0 0 auto; width: 30px; font-size: 17px; color: var(--accent); }
+.tool-row i.is-danger { color: var(--danger); }
+.tool-row > span { flex: 1 1 auto; min-width: 0; }
+.tool-row strong { display: block; font-size: 13px; }
+.tool-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.tool-row.is-on { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- 生成:历史成图缩略图 ----------
+   缩略图是正方形。Chrome 83 没有 aspect-ratio,所以用经典的
+   "height:0 + padding-bottom:100%" 撑比例,图片绝对定位填满 —— 这条在任何版本都成立。 */
+.result-head { display: flex; align-items: baseline; margin-bottom: 8px; }
+.result-head .section-label { flex: 1 1 auto; margin-bottom: 0; }
+.result-count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.result-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-bottom: 16px; }
+
+.result-thumb {
+  position: relative; display: block;
+  width: 100%; height: 0; padding: 0 0 100% 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-strong);
+}
+
+.result-thumb img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* 时间戳压在图片左下角:它必须有一个自己的底,不然在亮图上读不出来 */
+.result-time {
+  position: absolute; left: 4px; bottom: 4px;
+  padding: 1px 5px; border-radius: 6px;
+  background: rgba(10,12,16,.62); color: #fff;
+  font-size: 9.5px; font-variant-numeric: tabular-nums;
+}
+
+/* 空状态那一行必须横跨整张网格:它是 #result-grid 的直接子元素,
+   而那张网格是 3 列 —— 不写这条,提示文字只会挤在第一个格子里折成一条竖条。 */
+.result-grid > .empty-hint { grid-column: 1 / -1; }
+
+.empty-hint { margin: 14px 0 18px 0; color: var(--muted); font-size: 12.5px; text-align: center; }
+
+/* 生成中的那颗 dock 按钮转成黑色(用户要求:「生成时候外面的生成按钮是黑色的,但仍然可以用」)。
+   黑色是"正在渲染"的信号,但按钮本身不 disabled —— 点它照样能打开弹窗看进度。 */
+.dock-button.is-busy { background: #0b0c0e; border-color: #0b0c0e; color: #fff; }
+.dock-button.is-busy i { color: #fff; }
+
+/* 窄屏把六个按钮再收一档:6 × 46 + 5 × 5 = 301,加左右 20 的内边距 = 321,
+   360 宽的机器也排得下(此前 5 个按钮时是 52 与 6)。 */
+@media (max-width:430px) {
+  .dock-button { min-width: 46px; padding: 6px 6px; }
+  .dock-button + .dock-button { margin-left: 5px; }
+  .dock-button i { font-size: 14px; }
 }
