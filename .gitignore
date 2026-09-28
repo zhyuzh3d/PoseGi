@@ -10,7 +10,7 @@ release/
 .server-state/
 
 # 设备开发凭据(地址随手机变化,不提交)
-.hermit-dev.json
+.haminn-dev.json
 
 # 本工作区的工作台数据,不属于仓库内容
 .workbuddy/

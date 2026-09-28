@@ -37,7 +37,7 @@ const CJK = /[\u4e00-\u9fff]/;
 const fakeEnglish = (text) => "en<" + text.length + "-" + text.charCodeAt(0).toString(16) + ">";
 let probeReply = null;
 
-app.platform.hermit = {
+app.platform.haminn = {
   getData: async (collection, key) => {
     const name = collection + "/" + key;
     return mem.has(name) ? { collection, key, value: mem.get(name) } : null;
@@ -77,7 +77,7 @@ app.platform.hermit = {
 /* ---------- 3) translate():只翻没翻过的中文,英文不占网络 ---------- */
 {
   await store.loadConfig();
-  app.config.connection.endpoint = "http://192.168.124.31:8189/vibedraw/";
+  app.config.connection.endpoint = "http://192.168.124.31:8189/hamdraw/";
   app.config.translate = { enabled: true, endpoint: "", apiKey: "", customHeaders: "" };
 
   /* 默认没配好(enabled=false)时不该翻 */
@@ -94,8 +94,8 @@ app.platform.hermit = {
   const asked = await translate.translate(["一个科幻女战士", "一个科幻女战士", "一座雪山"]);
   assert.equal(calls.length, before + 1, "两条不重复的中文合并成一次请求");
   assert.equal(asked.length, 2, "重复的那条只发一次");
-  assert.equal(calls[calls.length - 1], "http://192.168.124.31:8189/vibedraw/v1/translate",
-    "地址要去掉重复的 /vibedraw/ 再拼端点");
+  assert.equal(calls[calls.length - 1], "http://192.168.124.31:8189/hamdraw/v1/translate",
+    "地址要去掉重复的 /hamdraw/ 再拼端点");
 
   assert.equal(translate.translated("一个科幻女战士"), true);
   assert.equal(translate.english("一个科幻女战士"), fakeEnglish("一个科幻女战士"));
@@ -246,8 +246,8 @@ app.platform.hermit = {
   const build = translate.internals.buildRequest;
 
   /* CVP:插件接口一次能收多段,认证走 Bearer */
-  const cvp = build("cvp", { endpoint: "http://192.168.124.31:8189/vibedraw", apiKey: "pw", customHeaders: "" }, ["甲", "乙"]);
-  assert.equal(cvp.url, "http://192.168.124.31:8189/vibedraw/v1/translate");
+  const cvp = build("cvp", { endpoint: "http://192.168.124.31:8189/hamdraw", apiKey: "pw", customHeaders: "" }, ["甲", "乙"]);
+  assert.equal(cvp.url, "http://192.168.124.31:8189/hamdraw/v1/translate");
   assert.equal(cvp.headers.Authorization, "Bearer pw");
   assert.deepEqual(JSON.parse(cvp.bodyText), { texts: ["甲", "乙"], target: "en" });
 

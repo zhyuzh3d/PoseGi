@@ -12,7 +12,7 @@
  *   statusLine 状态行是否落在顶栏卡片下方并留出竖向间距
  *   faceMask   正反着色的 shader 注入锚点是否还在、注入是否真的落上了
  *   engine     生图链路:模型卡 / 激活项 / 协议 / 分辨率与参考图强度是否自洽
- *   bridge     Hermit Bridge 是否就绪(开发模式同步时应当为真)
+ *   bridge     Haminn Bridge 是否就绪(开发模式同步时应当为真)
  */
 (function (app) {
   "use strict";
@@ -20,7 +20,7 @@
   function checkNamespace() {
     var missing = [];
     [["utils", app.utils], ["i18n", app.i18n], ["runtime", app.runtime], ["rig", app.rig], ["ik", app.ik],
-      ["platform.hermit", app.platform.hermit], ["services.assets", app.services.assets],
+      ["platform.haminn", app.platform.haminn], ["services.assets", app.services.assets],
       ["services.store", app.services.store],
       ["services.providers", app.services.providers], ["services.translate", app.services.translate],
       ["services.imageEngine", app.services.imageEngine],
@@ -172,9 +172,9 @@
   }
 
   async function checkBridge() {
-    await app.platform.hermit.awaitReady(1200);
-    var ready = app.platform.hermit.available();
-    return { ok: ready, detail: ready ? "Hermit Bridge 已就绪" : "没有宿主 Bridge,当前是浏览器降级环境" };
+    await app.platform.haminn.awaitReady(1200);
+    var ready = app.platform.haminn.available();
+    return { ok: ready, detail: ready ? "Haminn Bridge 已就绪" : "没有宿主 Bridge,当前是浏览器降级环境" };
   }
 
   /* 生图链路:查的是"配置能不能落到一次真实调用上" —— 有卡、激活项指向其中一张、

@@ -25,8 +25,8 @@
 用法:
   python3 tools/make-icon.py --out app/assets/icon.webp
   python3 tools/make-icon.py --out app/assets/icon.webp \\
-      --copy ../hermitweb/public/assets/site/posegi.webp \\
-      --copy ../hermitweb/public/assets/site/posegi-icon-192.png
+      --copy ../haminnweb/public/assets/site/posegi.webp \\
+      --copy ../haminnweb/public/assets/site/posegi-icon-192.png
 """
 
 from __future__ import annotations

@@ -48,7 +48,7 @@
      交给模型的永远是同一张 1024 边的干净渲染图,与模型卡自己的画幅无关。
 
      编码是 JPEG 而不是 PNG,因为这张图要**整个塞进请求体**发给模型:宿主单条消息
-     200000 字符封顶(见 platform/hermit.js 的 MESSAGE_CHARS),而 1024 的 PNG 截图
+     200000 字符封顶(见 platform/haminn.js 的 MESSAGE_CHARS),而 1024 的 PNG 截图
      在真机上量出来是 233750 字符 —— 会被自家的 checkBudget 直接拦下,报
      "超过宿主单次请求上限",连网都出不去。同一张图 JPEG(0.92)只有 62659 字符。
      3D 渲染是一大片平滑渐变,JPEG 的损失落在扩散模型的参考图里看不出来;
@@ -109,8 +109,8 @@
     app.features.editor.init();
     app.features.editor.status(app.features.editor.defaultStatus());
 
-    app.platform.hermit.appReady();
-    app.platform.hermit.reportTheme();
+    app.platform.haminn.appReady();
+    app.platform.haminn.reportTheme();
     lockPortrait();
 
     await app.features.selfTest.run();
@@ -124,7 +124,7 @@
     app.events.emit("error", event.reason || new Error("异步操作失败"));
   });
 
-  /* 设备端验收用的可读状态:hermit_get_page_state 读这里的第二个返回值 */
+  /* 设备端验收用的可读状态:haminn_get_page_state 读这里的第二个返回值 */
   window.posegiDevState = {
     capture: function () {
       var viewport = app.components.viewport;
@@ -170,7 +170,7 @@
           });
           return flat;
         })(),
-        bridge: app.platform.hermit.available(),
+        bridge: app.platform.haminn.available(),
         scrollY: window.scrollY,
         selfTest: window.__posegiSelfTest || null
       };

@@ -9,10 +9,10 @@
   var app = global.posegi = global.posegi || {};
   var listeners = {};
 
-  /* 与 hermit.json 的 version.name 必须一致(tests/rig.test.mjs 守着)。
-     上一轮发版只改了 hermit.json(code 3 / 0.1.1),这里漏了 —— 于是界面上
-     顶着「v0.1.0」而装上去的包里写着 0.1.1。以 hermit.json 为准,这里跟上。 */
-  app.version = "0.1.3";
+  /* 与 haminn.json 的 version.name 必须一致(tests/rig.test.mjs 守着)。
+     上一轮发版只改了 haminn.json(code 3 / 0.1.1),这里漏了 —— 于是界面上
+     顶着「v0.1.0」而装上去的包里写着 0.1.1。以 haminn.json 为准,这里跟上。 */
+  app.version = "0.1.4";
 
   /* 主题锁:本应用不做主题切换(设置里没有这一项),一律深色。
      2026-09-25 用户决定 —— 之前跟着系统 prefers-color-scheme 走,新设备系统非深色
@@ -36,7 +36,7 @@
 
   /* 运行时状态:一屏之内的即时值,不直接落盘。
    *
-   * 作品的边界(2026-09-25 用户定的形态,参照 vibedraw):
+   * 作品的边界(2026-09-25 用户定的形态,参照 hamdraw):
    *   「作品」= 标题 + 提示词 + 属于它的历史成图(最多 12 张)。
    *   成图挂在作品下面,所以"历史成图跟随作品保存"是数据形状本身保证的,
    *   不是靠某个保存时机去补救。换作品 = 换一组成图。 */
@@ -94,7 +94,7 @@
         en: "a sci-fi female warrior. Use the reference image for pose only. Do not copy its figure's look, hairstyle or clothing."
       }
     },
-    /* CVP(ComfyUI VibeDraw Plugin)的连接是**一套**:地址、密码、自定义头。
+    /* CVP(ComfyUI HamDraw Plugin)的连接是**一套**:地址、密码、自定义头。
        填一次,所有 protocol 为 cvp 的模型卡一起生效 —— 插件本来就是一个进程,
        每张卡各填一份地址只会让人重复劳动,还会出现"两张卡填了不同地址"的鬼状态。
        非 CVP 的卡(OpenAI Images / SD WebUI / Stability)各有各的 endpoint。 */
@@ -102,7 +102,7 @@
     /* 还没填过 CVP 地址时,「服务器地址」里预填的那条样例 —— 只有 IP 是要改的地方,
        所以它本身不是一个能直接用的地址,是给用户照着改的。
        (2026-09-26 用户要求:**已经填过就绝不去动它**,只在配置里还没有地址时才填这一条。) */
-    cvpEndpoint: "http://192.168.1.31:8189/vibedraw",
+    cvpEndpoint: "http://192.168.1.31:8189/hamdraw",
     /* CVP 每个任务的出厂参数:**这一份是唯一出处**,界面、store 的字段夹取、
        providers 的请求组装都读它。以前"画幅范围 / 步数 / 参考图基准"散在 providers
        的三处 if 里,加一张卡要同时改三个地方,忘一处就是"新卡按老卡的画幅发请求"。
@@ -113,7 +113,7 @@
       upscale: { size: [1024, 1024, 512], steps: 8, refBase: 0.75, timeoutMs: 240000 },
       qwen: { size: [512, 1024, 64], steps: 20, refBase: 0.95, timeoutMs: 300000 }
     },
-    /* 出厂三张模型卡,都是 ComfyUI Vibedraw Plugin(CVP)规范:
+    /* 出厂三张模型卡,都是 ComfyUI Hamdraw Plugin(CVP)规范:
        快速生图 512、渲染出图 1024、Qwen 图像 2.1 512–1024。
        用户可以再"添加模型"加别的接口。
        needsEnglish = "这张卡只吃英文提示词,生图前要先把中文译成英文"。

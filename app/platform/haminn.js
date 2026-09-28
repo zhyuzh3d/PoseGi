@@ -1,7 +1,7 @@
 /* 宿主 Bridge 与网络的唯一出口
  *
- * 责任:把 window.hermit 的能力包成稳定接口,并在没有宿主时退回浏览器实现。
- * 约束:任何模块都不许直接调用 window.hermit 或 fetch,一律经这里。
+ * 责任:把 window.haminn 的能力包成稳定接口,并在没有宿主时退回浏览器实现。
+ * 约束:任何模块都不许直接调用 window.haminn 或 fetch,一律经这里。
  *
  * 宿主消息上限:单条消息超过 256 KiB 会被静默丢弃,调用方只会等到自己的超时。
  * 因此所有内联请求体都控制在 MESSAGE_CHARS 以内(图片走文件接口或分块)。
@@ -14,7 +14,7 @@
   var MESSAGE_CHARS = 200000;
   var DATA_PREFIX = "posegi:";
 
-  function current() { return window.hermit && window.hermit.isReady ? window.hermit : null; }
+  function current() { return window.haminn && window.haminn.isReady ? window.haminn : null; }
 
   function markReady() {
     if (!current()) return;
@@ -23,7 +23,7 @@
     app.events.emit("platform:ready", true);
   }
 
-  window.addEventListener("hermitready", markReady);
+  window.addEventListener("haminnready", markReady);
   if (current()) markReady();
 
   function awaitReady(timeoutMs) {
@@ -49,7 +49,7 @@
   }
 
   /* 网络授权:宿主按 origin 授权,没授权的 origin 第一次访问时它会弹一个原生确认框,
-     用户点"允许"之前请求一直挂着 —— 表现是 60 秒后报 "Hermit request timed out",
+     用户点"允许"之前请求一直挂着 —— 表现是 60 秒后报 "Haminn request timed out",
      看起来像"设备连不上",其实什么都没发出去(2026-09-25 真机踩到过,见当日记忆)。
      所以正式发请求之前显式要一次授权,弹框就落在用户刚点按钮的那一刻。
      授权是按 origin 记的,同一个地址只弹一次;失败的(用户拒绝)不记,下次再问。 */
@@ -240,7 +240,7 @@
     if (current() || await awaitReady(1000)) await current().app.ready().catch(function () {});
   }
 
-  app.platform.hermit = {
+  app.platform.haminn = {
     messageChars: MESSAGE_CHARS,
     current: current,
     available: available,

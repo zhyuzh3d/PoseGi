@@ -25,11 +25,11 @@ assert.ok(rig, "rig 没有注册到 window.posegi");
    都是"原点上的零长节点",测出来的东西没有任何意义。 */
 const CHARACTER = rig.applyModel(app.models.get("ikea"));
 assert.ok(CHARACTER, "宜家人偶没有登记到 app.models");
-/* 版本号:查"格式对不对"与"和 hermit.json 一致吗",不要写死一个具体数字 ——
+/* 版本号:查"格式对不对"与"和 haminn.json 一致吗",不要写死一个具体数字 ——
    写死的话每完成一个任务(补丁位 +1)都要回来改测试,而它守不住任何东西。 */
-const manifest = JSON.parse(fs.readFileSync(path.join(root, "hermit.json"), "utf8"));
+const manifest = JSON.parse(fs.readFileSync(path.join(root, "haminn.json"), "utf8"));
 assert.match(app.version, /^\d+\.\d+\.\d+$/, "app.version 必须是 x.y.z");
-assert.equal(app.version, manifest.version.name, "app.version 与 hermit.json 的 version.name 不一致");
+assert.equal(app.version, manifest.version.name, "app.version 与 haminn.json 的 version.name 不一致");
 
 /* 关节表自洽:重名、父链顺序、骨骼尺寸 */
 {

@@ -180,7 +180,7 @@
   }
 
   /* multipart/form-data 的字节组装:参考图必须走二进制,不能走 JSON+base64,
-     否则一次请求的字符数会翻掉三分之一(见 platform/hermit.js 的消息上限)。 */
+     否则一次请求的字符数会翻掉三分之一(见 platform/haminn.js 的消息上限)。 */
   function multipart(fields, files) {
     var boundary = "----PoseGi" + Math.random().toString(16).slice(2) + Date.now().toString(16);
     var chunks = [];

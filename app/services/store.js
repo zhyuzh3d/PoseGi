@@ -1,7 +1,7 @@
 /* 持久化:配置与作品
  *
  * 责任:把 app.defaults 的形状与宿主数据区对上,提供读写的唯一入口。
- * 约束:只存引用与标量,图片字节与 Base64 一律不进 hermit.data(见 AGENTS.md)。
+ * 约束:只存引用与标量,图片字节与 Base64 一律不进 haminn.data(见 AGENTS.md)。
  *
  * 数据区布局(collection/key):
  *   config / "app"      → 一份 app.defaults 形状的配置(含模型卡列表)
@@ -146,17 +146,17 @@
   }
 
   async function loadConfig() {
-    var record = await app.platform.hermit.getData(CONFIG.collection, CONFIG.key);
+    var record = await app.platform.haminn.getData(CONFIG.collection, CONFIG.key);
     app.config = shareCvp(shapeConfig(record && record.value));
     app.state.activeModelId = app.config.activeModelId;
-    var works = await app.platform.hermit.getData(WORKS.collection, WORKS.key);
+    var works = await app.platform.haminn.getData(WORKS.collection, WORKS.key);
     index = works && Object.prototype.toString.call(works.value) === "[object Array]" ? works.value : [];
     return app.config;
   }
 
   async function saveConfig(config) {
     var value = shareCvp(shapeConfig(config || app.config));
-    await serial(function () { return app.platform.hermit.putData(CONFIG.collection, CONFIG.key, value); });
+    await serial(function () { return app.platform.haminn.putData(CONFIG.collection, CONFIG.key, value); });
     app.config = value;
     app.state.activeModelId = value.activeModelId;
     return value;
@@ -256,14 +256,14 @@
     var record = snapshot();
     var existing = index.filter(function (item) { return item.id === record.id; })[0];
     record.createdAt = existing ? existing.createdAt : Date.now();
-    await app.platform.hermit.putData(WORK, record.id, record);
+    await app.platform.haminn.putData(WORK, record.id, record);
     index = index.filter(function (item) { return item.id !== record.id; });
     index.unshift({
       id: record.id, title: record.title, prompt: record.prompt, promptEn: record.promptEn,
       createdAt: record.createdAt, updatedAt: record.updatedAt,
       hasResults: record.results.length > 0, count: record.results.length
     });
-    await app.platform.hermit.putData(WORKS.collection, WORKS.key, index);
+    await app.platform.haminn.putData(WORKS.collection, WORKS.key, index);
     app.events.emit("works:changed", index.length);
     return record;
   }
@@ -281,7 +281,7 @@
   }
 
   async function queryWork(id) {
-    var record = await app.platform.hermit.getData(WORK, String(id || ""));
+    var record = await app.platform.haminn.getData(WORK, String(id || ""));
     return record && record.value ? record.value : null;
   }
 
@@ -388,12 +388,12 @@
       record.promptEn = app.services.translate.pair(record.prompt, "") || null;
     }
     record.updatedAt = Date.now();
-    await app.platform.hermit.putData(WORK, record.id, record);
+    await app.platform.haminn.putData(WORK, record.id, record);
     index = index.map(function (item) {
       if (item.id !== record.id) return item;
       return app.utils.merge(item, { title: record.title, prompt: record.prompt, promptEn: record.promptEn, updatedAt: record.updatedAt });
     });
-    await app.platform.hermit.putData(WORKS.collection, WORKS.key, index);
+    await app.platform.haminn.putData(WORKS.collection, WORKS.key, index);
     app.events.emit("works:changed", index.length);
     return record.id;
   }
@@ -432,8 +432,8 @@
     var record = await queryWork(id);
     var nextIndex = index.filter(function (item) { return item.id !== id; });
     index = nextIndex;
-    await app.platform.hermit.deleteData(WORK, String(id));
-    await app.platform.hermit.putData(WORKS.collection, WORKS.key, index);
+    await app.platform.haminn.deleteData(WORK, String(id));
+    await app.platform.haminn.putData(WORKS.collection, WORKS.key, index);
     if (app.state.workId === id) applyToState(null);
     if (record) {
       var remaining = [];

@@ -14,7 +14,7 @@ import zipfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-RUNTIME_ROOTS = ("index.html", "hermit.json", "guid.md", "app", "styles", "vendor")
+RUNTIME_ROOTS = ("index.html", "haminn.json", "guid.md", "app", "styles", "vendor")
 FIXED_TIMESTAMP = (2026, 9, 24, 0, 0, 0)
 
 
@@ -32,7 +32,7 @@ def runtime_files() -> list[pathlib.Path]:
 
 
 def release_info() -> tuple[str, pathlib.Path]:
-    manifest = json.loads((ROOT / "hermit.json").read_text(encoding="utf-8"))
+    manifest = json.loads((ROOT / "haminn.json").read_text(encoding="utf-8"))
     relative = f"release/posegi-v{manifest['version']['name']}.zip"
     return relative, ROOT / relative
 
@@ -67,7 +67,7 @@ def build(output: pathlib.Path) -> str:
 
 def write_install_manifest(package_path: str, digest: str) -> None:
     content = {"schema": 1, "package": package_path, "sha256": digest}
-    (ROOT / "hermit-install.json").write_text(
+    (ROOT / "haminn-install.json").write_text(
         json.dumps(content, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
@@ -75,10 +75,10 @@ def write_install_manifest(package_path: str, digest: str) -> None:
 def verify(package_path: str, output: pathlib.Path) -> None:
     if not output.is_file():
         raise SystemExit(f"release archive missing: {output}")
-    install = json.loads((ROOT / "hermit-install.json").read_text(encoding="utf-8"))
+    install = json.loads((ROOT / "haminn-install.json").read_text(encoding="utf-8"))
     digest = sha256(output)
     if install != {"schema": 1, "package": package_path, "sha256": digest}:
-        raise SystemExit("hermit-install.json does not match the release archive")
+        raise SystemExit("haminn-install.json does not match the release archive")
     expected = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
     with zipfile.ZipFile(output) as archive:
         names = archive.namelist()

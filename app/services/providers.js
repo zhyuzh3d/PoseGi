@@ -14,8 +14,8 @@
  *   { prompt, negativePrompt, seed, imageDataUrl, mime }
  *   imageDataUrl 永远是 1024 边的渲染参考图(见 app.defaults.reference)
  *
- * 选型说明(照抄 vibedraw 已经跑通的那一套):
- *   - cvp(ComfyUI Vibedraw Plugin)是推荐路径:插件自带工作流,客户端只报任务名 + 参考图,
+ * 选型说明(照抄 hamdraw 已经跑通的那一套):
+ *   - cvp(ComfyUI Hamdraw Plugin)是推荐路径:插件自带工作流,客户端只报任务名 + 参考图,
  *     而且成图由插件自己发,提交与取图共用一把密码。
  *   - sd-webui 最省事:一次 POST /sdapi/v1/img2img,参考图直接放 init_images。
  *   - openai-images 走 /v1/images/edits(multipart),纯文字走 /v1/images/generations。
@@ -25,13 +25,13 @@
   "use strict";
 
   var u = app.utils;
-  var network = app.platform.hermit;
+  var network = app.platform.haminn;
 
   function t(zh, en) { return app.i18n ? app.i18n.text(zh, en) : zh; }
 
   var PROTOCOLS = [
-    { id: "cvp", name: "ComfyUI Vibedraw Plugin(推荐)",
-      description: "连接装有 VibeDraw 插件的 ComfyUI。插件自带快速生图、渲染与 Qwen 图像三套工作流,不需要导出工作流 JSON;密码在插件的配置节点里设置。" },
+    { id: "cvp", name: "ComfyUI Hamdraw Plugin(推荐)",
+      description: "连接装有 HamDraw 插件的 ComfyUI。插件自带快速生图、渲染与 Qwen 图像三套工作流,不需要导出工作流 JSON;密码在插件的配置节点里设置。" },
     { id: "openai-images", name: "OpenAI Images 兼容",
       description: "兼容 /v1/images/generations 与 /v1/images/edits,适合云端与兼容网关。" },
     { id: "sd-webui", name: "SD WebUI / Forge",
@@ -215,20 +215,20 @@
     return responseImage(response, requestHeaders);
   }
 
-  /* ---------- CVP —— ComfyUI Vibedraw Plugin(schema vibedraw-comfy/v2) ----------
+  /* ---------- CVP —— ComfyUI Hamdraw Plugin(schema hamdraw-comfy/v2) ----------
    *
    * 一个地址、三种任务。插件自带工作流,所以客户端只报任务名与参考图,
    * 从不发工作流 JSON;成图也由插件自己发,提交与取图共用同一把密码。 */
 
   /* 从用户填的地址里剥出服务根。
    *
-   * 这里必须匹配 `/vibedraw`(**不带尾斜杠**):插件界面上给出的接口地址是
-   * `http://host:8189/vibedraw/`,而 stripSlash 会先把尾斜杠吃掉,变成
-   * `…/vibedraw` —— 匹配 `/vibedraw/` 就再也找不到,于是根地址原样带着
-   * `/vibedraw` 拼出 `…/vibedraw/vibedraw/v1/jobs`(2026-09-25 写测试时暴露)。
-   * 匹配 `/vibedraw` 之后,`/vibedraw`、`/vibedraw/`、`/vibedraw/v1/jobs` 三种写法都能正确收口。 */
+   * 这里必须匹配 `/hamdraw`(**不带尾斜杠**):插件界面上给出的接口地址是
+   * `http://host:8189/hamdraw/`,而 stripSlash 会先把尾斜杠吃掉,变成
+   * `…/hamdraw` —— 匹配 `/hamdraw/` 就再也找不到,于是根地址原样带着
+   * `/hamdraw` 拼出 `…/hamdraw/hamdraw/v1/jobs`(2026-09-25 写测试时暴露)。
+   * 匹配 `/hamdraw` 之后,`/hamdraw`、`/hamdraw/`、`/hamdraw/v1/jobs` 三种写法都能正确收口。 */
   function cvpBase(endpoint) {
-    var value = u.stripSlash(endpoint), marker = value.indexOf("/vibedraw");
+    var value = u.stripSlash(endpoint), marker = value.indexOf("/hamdraw");
     return marker >= 0 ? value.slice(0, marker) : value;
   }
 
@@ -237,7 +237,7 @@
    * 插件 v2.1 起自报"这台机器上有哪些任务、各自收什么、要不要先译英",客户端不再
    * 需要把任务表写死在自己代码里(2026-09-26 用户要求)。
    *
-   * 优先打 `/vibedraw/v1/plugins`:它的职责就是这个,而且**密码填错也照答**
+   * 优先打 `/hamdraw/v1/plugins`:它的职责就是这个,而且**密码填错也照答**
    * (由 `auth.authorized` 说明),所以"地址对不对"和"密码对不对"一次就能问清。
    * v2.0.x 没有这个路由,退回 `/capabilities` —— v2.1 起那边也带同一份
    * `plugins` / `prompt_policy`。两条都拿不到 JSON 就返回 null,调用方按老行为继续,
@@ -245,9 +245,9 @@
   async function cvpDiscovery(config) {
     var base = cvpBase(config.endpoint), requestHeaders = headers(config);
     var timeoutMs = Math.min(Number(config.timeoutMs) || 30000, 30000);
-    var response = await network.request({ url: base + "/vibedraw/v1/plugins", method: "GET", headers: requestHeaders, timeoutMs: timeoutMs });
+    var response = await network.request({ url: base + "/hamdraw/v1/plugins", method: "GET", headers: requestHeaders, timeoutMs: timeoutMs });
     if (response.status === 404) {
-      response = await network.request({ url: base + "/vibedraw/v1/capabilities", method: "GET", headers: requestHeaders, timeoutMs: timeoutMs });
+      response = await network.request({ url: base + "/hamdraw/v1/capabilities", method: "GET", headers: requestHeaders, timeoutMs: timeoutMs });
     }
     ensureOk(response, requestHeaders);
     var payload = u.parseJson(response.bodyText || "", null);
@@ -279,8 +279,8 @@
     try {
       payload = await cvpDiscovery(config);
     } catch (error) { throw cvpError(error); }
-    if (!payload) throw new Error(t("这个地址没有回答 VibeDraw 插件的发现请求,请确认地址指向装有该插件的 ComfyUI(地址通常以 /vibedraw 结尾)",
-      "That address did not answer the plugin's discovery request. Check that it points at a ComfyUI with the VibeDraw plugin installed."));
+    if (!payload) throw new Error(t("这个地址没有回答 HamDraw 插件的发现请求,请确认地址指向装有该插件的 ComfyUI(地址通常以 /hamdraw 结尾)",
+      "That address did not answer the plugin's discovery request. Check that it points at a ComfyUI with the HamDraw plugin installed."));
     /* 密码错了这里能说清 —— 发现端点会照常回答,只用 auth.authorized 标明。
        比笼统的"连接失败"有用得多:用户立刻知道该去改密码,而不是去查网络。
        判据必须是"服务器明确说 false",**不能**写成"没说是 true 就当错":v2.0.x 的
@@ -288,15 +288,15 @@
        而真正的错因(地址不通、版本不对)反而被藏起来。老插件走的是 401 → cvpError 那条路。 */
     var auth = payload.auth || {};
     if (auth.authorized === false) {
-      throw new Error(t("地址已连通,但访问密码不对 —— 请在 ComfyUI 的 VibeDraw 配置节点里核对密码",
-        "The address works, but the access password is wrong. Check it in the ComfyUI VibeDraw config node."));
+      throw new Error(t("地址已连通,但访问密码不对 —— 请在 ComfyUI 的 HamDraw 配置节点里核对密码",
+        "The address works, but the access password is wrong. Check it in the ComfyUI HamDraw config node."));
     }
     var wanted = cvpTask(config);
     var entry = cvpTaskEntry(payload, wanted);
     if (!entry) throw new Error(t("插件不支持“" + wanted + "”任务,请升级插件", "The plugin does not offer the " + wanted + " task. Please update it."));
     var model = cvpEntryModel(entry);
-    if (!model) throw new Error(t("插件的" + wanted + "任务还没有选择模型,请在 ComfyUI 的 VibeDraw 配置节点里设置", "The plugin has no model for " + wanted + ". Set it in the ComfyUI VibeDraw config node."));
-    if (entry.ready === false) throw new Error(t("插件的" + wanted + "任务选好了模型,但机器上找不到那个文件,请在 ComfyUI 的 VibeDraw 配置节点里核对", "The plugin has a model picked for " + wanted + " but its file is not installed. Check the ComfyUI VibeDraw config node."));
+    if (!model) throw new Error(t("插件的" + wanted + "任务还没有选择模型,请在 ComfyUI 的 HamDraw 配置节点里设置", "The plugin has no model for " + wanted + ". Set it in the ComfyUI HamDraw config node."));
+    if (entry.ready === false) throw new Error(t("插件的" + wanted + "任务选好了模型,但机器上找不到那个文件,请在 ComfyUI 的 HamDraw 配置节点里核对", "The plugin has a model picked for " + wanted + " but its file is not installed. Check the ComfyUI HamDraw config node."));
     return {
       ok: true, status: 200, task: wanted, model: model,
       sizes: entry.sizes || [], steps: entry.steps || {},
@@ -324,18 +324,18 @@
 
   function cvpError(error) {
     var text = String(error && error.message || error || "");
-    if (/unauthorized|401/.test(text)) return new Error(t("访问密码不正确,请在 ComfyUI 的 VibeDraw 配置节点里核对密码", "Wrong access password. Check the password set in the ComfyUI VibeDraw config node."));
-    if (/no_model|模型/.test(text)) return new Error(t("插件没有可用模型,请先在 ComfyUI 的 VibeDraw 配置节点里选择 checkpoint", "The plugin has no model. Pick a checkpoint in the ComfyUI VibeDraw config node first."));
+    if (/unauthorized|401/.test(text)) return new Error(t("访问密码不正确,请在 ComfyUI 的 HamDraw 配置节点里核对密码", "Wrong access password. Check the password set in the ComfyUI HamDraw config node."));
+    if (/no_model|模型/.test(text)) return new Error(t("插件没有可用模型,请先在 ComfyUI 的 HamDraw 配置节点里选择 checkpoint", "The plugin has no model. Pick a checkpoint in the ComfyUI HamDraw config node first."));
     if (/busy|429/.test(text)) return new Error(t("插件队列已满,请稍后再试", "The plugin queue is full. Try again shortly."));
     /* 宿主按 origin 授权局域网访问,没点"允许"之前请求会一直挂着,最后报超时 ——
-       这句提示比原样的 "Hermit request timed out" 有用得多。 */
+       这句提示比原样的 "Haminn request timed out" 有用得多。 */
     if (/timed out|E_TIMEOUT/.test(text)) return new Error(t("连不上这个地址:确认手机和服务器在同一局域网,并且已经在宿主弹出的授权框里点了「允许」", "Cannot reach that address. Check that the phone and the server share a network, and that you allowed the host permission prompt."));
     if (/能力已被拒绝|拒绝了此能力|CAPABILITY_DENIED/.test(text)) return new Error(t("网络访问授权被拒绝:请重新「测试连接」,在宿主弹出的确认框里点「允许」", "Network access was denied. Test the connection again and choose Allow in the host prompt."));
     return error;
   }
 
   async function cvpGenerate(config, input) {
-    var base = cvpBase(config.endpoint), api = base + "/vibedraw/v1", task = cvpTask(config);
+    var base = cvpBase(config.endpoint), api = base + "/hamdraw/v1", task = cvpTask(config);
     var requestHeaders = headers(config, "application/json");
     var value = cvpSize(config);
     var body = {

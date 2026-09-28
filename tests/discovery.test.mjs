@@ -8,7 +8,7 @@
  *      让界面别去动用户手工拨的开关(猜错方向就会把中文提示词喂给只认英文的编码器)。
  *   3. 地址通但密码错,要和"连不上"分开报 —— 这是发现端点"密码填错也照答"的用处。
  *
- * providers.js 在加载时就把 app.platform.hermit 抓成局部变量,所以宿主替身必须在
+ * providers.js 在加载时就把 app.platform.haminn 抓成局部变量,所以宿主替身必须在
  * 加载它**之前**挂上去,这组测试才自己写加载顺序,不复用 providers.test.mjs 的那一段。
  */
 import assert from "node:assert/strict";
@@ -28,7 +28,7 @@ const app = globalThis.window.posegi;
 /* ---------- 宿主替身:按 URL 发预先备好的回答,并记下问过谁 ---------- */
 let asked = [];
 let routes = {};
-app.platform.hermit = {
+app.platform.haminn = {
   request: async (options) => {
     const url = String(options.url);
     asked.push(url);
@@ -42,15 +42,15 @@ app.platform.hermit = {
 new Function(fs.readFileSync(path.join(root, "app/services/providers.js"), "utf8"))();
 const providers = app.services.providers;
 
-const BASE = "http://192.168.1.31:8189/vibedraw";
-const PLUGINS_URL = "http://192.168.1.31:8189/vibedraw/v1/plugins";
-const CAPS_URL = "http://192.168.1.31:8189/vibedraw/v1/capabilities";
+const BASE = "http://192.168.1.31:8189/hamdraw";
+const PLUGINS_URL = "http://192.168.1.31:8189/hamdraw/v1/plugins";
+const CAPS_URL = "http://192.168.1.31:8189/hamdraw/v1/capabilities";
 
 /* 一张 Qwen 卡(能读中文的那条),一张快速卡(只认英文的那条) */
 function card(task) {
   const value = providers.preset("cvp", task);
   value.endpoint = BASE;
-  value.apiKey = "a1x-vibedraw";
+  value.apiKey = "a1x-hamdraw";
   return value;
 }
 
@@ -58,9 +58,9 @@ function card(task) {
 function discoveryDoc(entries, options) {
   const settings = options || {};
   return {
-    schema: "vibedraw-comfy/discovery/v1",
-    api_schema: "vibedraw-comfy/v2",
-    plugin: { id: "vibedraw_comfy", version: "2.1.0", label: { zh: "…", en: "…" } },
+    schema: "hamdraw-comfy/discovery/v1",
+    api_schema: "hamdraw-comfy/v2",
+    plugin: { id: "hamdraw_comfy", version: "2.1.0", label: { zh: "…", en: "…" } },
     auth: { required: true, authorized: settings.authorized !== false, scheme: "Bearer", header: "Authorization" },
     plugins: entries,
     checkpoints: ["DreamShaper8_LCM.safetensors"]
@@ -108,7 +108,7 @@ const QUICK_ENTRY = {
   routes[CAPS_URL] = {
     status: 200,
     body: {
-      schema: "vibedraw-comfy/v2", plugin_version: "2.0.1",
+      schema: "hamdraw-comfy/v2", plugin_version: "2.0.1",
       tasks: [{ id: "qwen", model: "qwen_image_2.1_int8_convrot.safetensors", sizes: [[512, 512]], steps: { allowed: [20], default: 20 } }],
       auth: { required: true, scheme: "Bearer" }
     }

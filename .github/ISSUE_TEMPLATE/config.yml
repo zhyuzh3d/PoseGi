@@ -4,13 +4,13 @@ contact_links:
     url: https://github.com/zhyuzh3d/PoseGi
     about: 官方站点 posegi.airen.life 规划中,尚未上线,暂以仓库为准。
   - name: 在应用广场安装 PoseGi
-    url: https://hermit.airen.life/pages/happs.html
-    about: 扫描二维码或复制官方安装清单地址,先装 Hermit 再添加 PoseGi。
-  - name: 下载 Hermit 宿主
-    url: https://hermit.airen.life/pages/download.html
-    about: PoseGi 不能脱离 Hermit 单独安装,请先装宿主。
-  - name: VibeDraw(实时 AI 绘图)
-    url: https://vibedraw.airen.life/
+    url: https://haminn.airen.life/pages/happs.html
+    about: 扫描二维码或复制官方安装清单地址,先装 Haminn 再添加 PoseGi。
+  - name: 下载 Haminn 宿主
+    url: https://haminn.airen.life/pages/download.html
+    about: PoseGi 不能脱离 Haminn 单独安装,请先装宿主。
+  - name: HamDraw(实时 AI 绘图)
+    url: https://hamdraw.airen.life/
     about: 同一宿主上的实时 AI 绘图应用,其 CVP 插件也是 PoseGi 的推荐生图接入方式。
   - name: chataxi(多角色 AI 群聊)
     url: https://chataxi.airen.life/

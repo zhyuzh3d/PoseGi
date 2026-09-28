@@ -31,7 +31,7 @@ new Function(fs.readFileSync(path.join(root, "app/components/settings.js"), "utf
 
 /* ---------- 宿主替身:数据区在内存里,不该发网络请求 ---------- */
 const mem = new Map();
-app.platform.hermit = {
+app.platform.haminn = {
   getData: async (collection, key) => {
     const name = collection + "/" + key;
     return mem.has(name) ? { collection, key, value: mem.get(name) } : null;
@@ -103,8 +103,8 @@ app.components.ui = {
 
 /* ---------- 用例 ---------- */
 
-const VIBE_ENDPOINT = "http://192.168.124.31:8189/vibedraw";
-const VIBE_PASSWORD = "a1x-vibedraw";
+const VIBE_ENDPOINT = "http://192.168.124.31:8189/hamdraw";
+const VIBE_PASSWORD = "a1x-hamdraw";
 
 await store.loadConfig();
 assert.ok(app.config.models.length >= 3, "出厂应该有几张模型卡");
@@ -137,7 +137,7 @@ const target = app.config.models[0];
 assert.equal(target.protocol, "cvp", "第一张出厂卡是 CVP");
 fieldValues = {
   name: target.name, protocol: "cvp",
-  endpoint: "http://192.168.124.31:8189/vibedraw/", apiKey: "changed-password", customHeaders: "",
+  endpoint: "http://192.168.124.31:8189/hamdraw/", apiKey: "changed-password", customHeaders: "",
   size: "512", refStrength: "100", steps: "8", timeoutMs: "60000"
 };
 editIds = [target.id];
@@ -147,7 +147,7 @@ assert.ok(editButton && editButton.onclick, "模型卡上应该有编辑入口")
 editButton.onclick();
 
 await lastForm.querySelector("[data-save]").onclick();
-assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/vibedraw/", "编辑后 connection 要更新");
+assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/hamdraw/", "编辑后 connection 要更新");
 assert.equal(app.config.connection.apiKey, "changed-password", "编辑后密码要更新");
 assert.ok(app.config.models.every((item) => item.protocol !== "cvp" || item.apiKey === "changed-password"),
   "改一次密码,所有 cvp 卡一起改");
@@ -164,7 +164,7 @@ selector.value = "openai-images";
 selector.onchange();
 await lastForm.querySelector("[data-save]").onclick();
 
-assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/vibedraw/", "非 CVP 卡不该动 CVP 连接");
+assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/hamdraw/", "非 CVP 卡不该动 CVP 连接");
 assert.equal(app.config.connection.apiKey, "changed-password", "非 CVP 卡不该动 CVP 密码");
 const remote = app.config.models.filter((item) => item.name === "远端接口")[0];
 assert.ok(remote && remote.protocol === "openai-images", "换协议后应该存成非 CVP 卡");
@@ -185,15 +185,15 @@ fieldValues = {
 };
 app.components.settings.openAddModel();
 assert.equal(endpointValueIn(lastBody), app.defaults.cvpEndpoint, "还没填过地址时,表单要预填样例地址");
-assert.ok(String(app.defaults.cvpEndpoint).indexOf(":8189/vibedraw") > 0,
-  "样例地址必须带 /vibedraw —— 同一台机器的 8188 是另一个服务,照着填必错");
+assert.ok(String(app.defaults.cvpEndpoint).indexOf(":8189/hamdraw") > 0,
+  "样例地址必须带 /hamdraw —— 同一台机器的 8188 是另一个服务,照着填必错");
 
 /* 用户没改这一格,直接保存 —— 表单里读到的就是预填的那条 */
 lastForm.nodes.endpoint.value = app.defaults.cvpEndpoint;
 await lastForm.querySelector("[data-save]").onclick();
 assert.equal(app.config.connection.endpoint, app.defaults.cvpEndpoint, "预填的地址要随保存落进 connection");
 
-const CUSTOM_ENDPOINT = "http://10.0.0.8:8189/vibedraw";
+const CUSTOM_ENDPOINT = "http://10.0.0.8:8189/hamdraw";
 app.config.connection = { endpoint: CUSTOM_ENDPOINT, apiKey: "keep-me", customHeaders: "" };
 fieldValues = {
   name: "已填过的机器", protocol: "cvp", endpoint: CUSTOM_ENDPOINT, apiKey: "keep-me", customHeaders: "",

@@ -1,7 +1,7 @@
 /* 图片资产:把 data URL 落成宿主文件,记录里只留引用
  *
  * 责任:data URL ⇄ 文件句柄的转换,以及"哪些文件还被谁引用"的清理。
- * 约束:图片字节与 Base64 一律不进 hermit.data(见 AGENTS.md)——
+ * 约束:图片字节与 Base64 一律不进 haminn.data(见 AGENTS.md)——
  *       记录里只存 logicalFileId 数组,图片本体以文本块的形式存在宿主文件区。
  *
  * 为什么分块:宿主的文件接口是**文本**写入,一次能带多少有上限,
@@ -24,8 +24,8 @@
     if (!src) return Promise.resolve(null);
     if (String(src).indexOf("data:") !== 0) return Promise.resolve({ url: src });
     if (inFlight.has(src)) return inFlight.get(src);
-    var bridge = app.platform.hermit.current();
-    if (!bridge) return Promise.reject(new Error(app.i18n.text("保存图片需要在 Hermit 中打开应用", "Open in Hermit to save images")));
+    var bridge = app.platform.haminn.current();
+    if (!bridge) return Promise.reject(new Error(app.i18n.text("保存图片需要在 Haminn 中打开应用", "Open in Haminn to save images")));
     var parts = app.utils.dataUrlParts(src);
     if (!/^image\/(png|jpeg|webp)$/.test(parts.mime) || app.utils.dataUrlByteLength(src) > 12 * 1024 * 1024) {
       return Promise.reject(new Error(app.i18n.text("图片最大支持 12 MB 的 PNG、JPEG 或 WebP", "Use PNG, JPEG or WebP images up to 12 MB")));
@@ -68,8 +68,8 @@
     var key = (asset.parts || []).join(",");
     var cached = cache.get(key);
     if (cached) return cached;
-    var bridge = app.platform.hermit.current(), values = new Array((asset.parts || []).length);
-    if (!bridge) throw new Error(app.i18n.text("恢复图片需要 Hermit", "Hermit is required to restore images"));
+    var bridge = app.platform.haminn.current(), values = new Array((asset.parts || []).length);
+    if (!bridge) throw new Error(app.i18n.text("恢复图片需要 Haminn", "Haminn is required to restore images"));
     for (var index = 0; index < asset.parts.length; index += 4) {
       var tasks = [];
       for (var position = index; position < Math.min(asset.parts.length, index + 4); position += 1) {
@@ -104,7 +104,7 @@
     (remaining || []).forEach(function (snapshot) {
       references(snapshot).forEach(function (id) { used[id] = true; });
     });
-    var bridge = app.platform.hermit.current();
+    var bridge = app.platform.haminn.current();
     if (!bridge) return;
     var unique = {};
     references(removed).forEach(function (id) { if (!used[id]) unique[id] = true; });

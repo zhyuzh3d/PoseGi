@@ -165,7 +165,7 @@
   /* ---------- 截图 3D 视口 ----------
    * 2026-09-25 用户要求:「增加一个照相机按钮点击截图 3D 视口并拉起保存图片」。
    * 两件事:截当前视口的图(长边按屏幕像素放大到 1600,PNG 无损),
-   * 再交给宿主 files.export 弹系统保存框(见 platform/hermit.js 的 saveImage)。
+   * 再交给宿主 files.export 弹系统保存框(见 platform/haminn.js 的 saveImage)。
    * 与生图那张参考图不是一回事:那张固定 1024 正方、JPEG、只为喂模型;
    * 这张要按屏幕上的构图原样取景,人眼看到什么就存下什么。 */
   function stageShotSize() {
@@ -189,7 +189,7 @@
     var size = stageShotSize();
     var shot = app.components.viewport.captureAt(size.width, size.height, { format: "image/png" });
     status(text("正在保存截图…", "Saving the screenshot…"));
-    var result = await app.platform.hermit.saveImage(shot, shotFileName());
+    var result = await app.platform.haminn.saveImage(shot, shotFileName());
     if (result && result.cancelled) {
       status(text("已取消保存", "Save cancelled"));
       return result;

@@ -142,7 +142,7 @@
     html += '<label class="field"><span>' + (cvp ? t("访问密码", "Access password") : "API Key") + "</span>" +
       '<div class="secret-input"><input name="apiKey" type="password" autocomplete="off" value="' +
       esc(cvp ? shared().apiKey : draft.apiKey) + '" placeholder="' +
-      esc(cvp ? t("在 ComfyUI 的 VibeDraw 配置节点里设置;留空表示插件没有启用密码", "Set it in the ComfyUI VibeDraw config node; leave empty when the plugin has no password") : t("免鉴权的本地服务可留空", "Optional for local services")) +
+      esc(cvp ? t("在 ComfyUI 的 HamDraw 配置节点里设置;留空表示插件没有启用密码", "Set it in the ComfyUI HamDraw config node; leave empty when the plugin has no password") : t("免鉴权的本地服务可留空", "Optional for local services")) +
       '"><button type="button" data-toggle-secret aria-label="' + t("显示密钥", "Show key") + '"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
       '<button type="button" data-paste-secret aria-label="' + t("粘贴密钥", "Paste key") + '"><i class="fa-regular fa-paste" aria-hidden="true"></i></button></div></label>';
     if (cvp) {
@@ -253,7 +253,7 @@
     };
     var paste = content.querySelector("[data-paste-secret]");
     if (paste) paste.onclick = ui().action(async function () {
-      input.value = String(await app.platform.hermit.clipboardRead()).trim();
+      input.value = String(await app.platform.haminn.clipboardRead()).trim();
       write(input.value);
     });
   }
@@ -597,7 +597,7 @@
         };
         var paste = content.querySelector("[data-paste-secret]");
         if (paste) paste.onclick = ui().action(async function () {
-          secretInput.value = String(await app.platform.hermit.clipboardRead()).trim();
+          secretInput.value = String(await app.platform.haminn.clipboardRead()).trim();
         });
 
         content.querySelector("[data-test-translate]").onclick = ui().action(async function () {
@@ -689,7 +689,7 @@
       ]) +
       helpSection(t("模型", "Models"), [
         helpLine(fa("fa-solid", "cubes"), t("接上自己的模型", "Connect a model"),
-          t("「添加模型」里选接口模式。推荐在本地 ComfyUI 装 VibeDraw 插件(CVP):插件自带快速生图与渲染两套工作流,密码在插件的配置节点里设置。", "Pick an API format under Add model. Installing the VibeDraw plugin (CVP) on a local ComfyUI is recommended: it ships the quick and render workflows, and its password lives in the plugin's config node.")),
+          t("「添加模型」里选接口模式。推荐在本地 ComfyUI 装 HamDraw 插件(CVP):插件自带快速生图与渲染两套工作流,密码在插件的配置节点里设置。", "Pick an API format under Add model. Installing the HamDraw plugin (CVP) on a local ComfyUI is recommended: it ships the quick and render workflows, and its password lives in the plugin's config node.")),
         helpLine(fa("fa-solid", "sliders"), t("分辨率与参考图强度", "Size and reference strength"),
           t("每张卡有自己的生成分辨率(512–1024)与参考图强度(0–200,100 为中性)。强度调高更贴渲染图,调低给模型更多自由。", "Each card has its own output size (512–1024) and reference strength (0–200, 100 neutral). Higher sticks closer to the render; lower frees the model.")),
         helpLine(fa("fa-solid", "circle-check"), t("切换与测试", "Switch and test"),
@@ -710,11 +710,11 @@
     var html = '<div class="about-brand"><img class="brand-mark" src="./app/assets/icon.webp" alt="" width="38" height="38"><div><strong>PoseGi</strong>' +
       '<div class="about-meta">v' + esc(app.version) + " · MIT</div></div></div>" +
       "<p>" + t("摆好姿势,再交给 AI 完成画面。", "Pose it by hand, then let AI finish the picture.") + "</p>" +
-      '<p class="about-meta">' + t("原生 HTML / CSS / JavaScript 开源 happ,运行在 Hermit 上。姿态在本机渲染,只有你配置的服务会收到画面。",
-        "An open-source HTML / CSS / JavaScript happ running on Hermit. The pose renders on this device; only the service you configured receives the image.") + "</p>" +
+      '<p class="about-meta">' + t("原生 HTML / CSS / JavaScript 开源 happ,运行在 Haminn 上。姿态在本机渲染,只有你配置的服务会收到画面。",
+        "An open-source HTML / CSS / JavaScript happ running on Haminn. The pose renders on this device; only the service you configured receives the image.") + "</p>" +
       '<a class="button button-secondary about-link" href="' + PROJECT_URL + '" target="_self">' + fa("fa-brands", "github") +
       t("GitHub 仓库", "GitHub repository") + "</a>" +
-      '<p class="about-meta">© 2026 zhyuzh · Font Awesome Free (Hermit)</p>';
+      '<p class="about-meta">© 2026 zhyuzh · Font Awesome Free (Haminn)</p>';
     ui().openSheet({ eyebrow: t("关于", "About"), title: "PoseGi " + app.version, bodyHtml: html });
   }
 

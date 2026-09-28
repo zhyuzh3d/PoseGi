@@ -1,7 +1,7 @@
 /* 中英翻译服务(2026-09-25 用户要求)
  *
  * 责任:把中文角色描述译成英文,并把译文缓存到宿主数据区,同一句话只翻一次。
- * 约束:默认走 CVP 插件自带的翻译接口(`/vibedraw/v1/translate`,与生图共用一套
+ * 约束:默认走 CVP 插件自带的翻译接口(`/hamdraw/v1/translate`,与生图共用一套
  *       地址与密码,用户不必另外申请 key)。2026-09-26 用户要求再支持
  *       DeepSeek / Qwen / OpenAI / Claude / Gemini —— 前三家都是 OpenAI 兼容的
  *       `/chat/completions`,所以归成一项;请求组装按 protocol 分派(见文末 PROTOCOLS)。
@@ -43,7 +43,7 @@
     if (loaded) return cache;
     loaded = true;
     var record = null;
-    try { record = await app.platform.hermit.getData(COLLECTION, KEY); } catch (error) { return cache; }
+    try { record = await app.platform.haminn.getData(COLLECTION, KEY); } catch (error) { return cache; }
     var value = record && record.value;
     if (!value || value.schema !== SCHEMA || !value.entries || typeof value.entries !== "object") return cache;
     Object.keys(value.entries).forEach(function (key) {
@@ -59,7 +59,7 @@
     var keys = Object.keys(cache), entries = {};
     keys.slice(Math.max(0, keys.length - LIMIT)).forEach(function (key) { entries[key] = cache[key]; });
     try {
-      app.platform.hermit.putData(COLLECTION, KEY, { schema: SCHEMA, target: "en", entries: entries });
+      app.platform.haminn.putData(COLLECTION, KEY, { schema: SCHEMA, target: "en", entries: entries });
     } catch (error) { /* 缓存写不进去也还能用,不该因此打断生图 */ }
   }
 
@@ -70,7 +70,7 @@
    * Gemini 要 x-goog-api-key —— 用错头只会换来一句语焉不详的 401。 */
   var PROTOCOLS = {
     cvp: {
-      zh: "ComfyUI Vibedraw 插件(推荐)", en: "ComfyUI Vibedraw Plugin (recommended)",
+      zh: "ComfyUI Hamdraw 插件(推荐)", en: "ComfyUI Hamdraw Plugin (recommended)",
       zhHelp: "插件自带翻译大模型,地址与密码就是生图那一套,不用另外申请 key。",
       enHelp: "The plugin ships the translation model; the address and password are the same ones your image cards use.",
       /* 这条只是输入框里的样例(占位符),与模型卡共用同一份出处 */
@@ -146,7 +146,7 @@
     }
     if (protocol === "cvp") {
       return {
-        url: app.services.providers.internals.cvpBase(item.endpoint) + "/vibedraw/v1/translate",
+        url: app.services.providers.internals.cvpBase(item.endpoint) + "/hamdraw/v1/translate",
         headers: output,
         bodyText: JSON.stringify({ texts: prompts, target: "en" })
       };
@@ -225,7 +225,7 @@
       var request = buildRequest(protocol, item, group);
       var response;
       try {
-        response = await app.platform.hermit.request({
+        response = await app.platform.haminn.request({
           url: request.url, method: "POST", headers: request.headers,
           bodyText: request.bodyText, timeoutMs: 40000
         });
@@ -305,7 +305,7 @@
     if (!item.endpoint) throw new Error(t("请先填写翻译服务地址", "Enter the translation endpoint first"));
     if (protocol !== "cvp" && !item.model) throw new Error(t("请填写模型 ID", "Enter the model id"));
     var request = buildRequest(protocol, item, [PROBE_TEXT]);
-    var response = await app.platform.hermit.request({
+    var response = await app.platform.haminn.request({
       url: request.url, method: "POST", headers: request.headers,
       bodyText: request.bodyText, timeoutMs: 40000
     });

@@ -2,9 +2,9 @@
  *
  * 责任:把一张成图铺满整屏给人看,并让"看的时候就能删掉它"。
  * 约束:整层挂在 body 上(不放进任何 flex 父级),用 fixed 铺满视口 ——
- *       弹层用的是 flex 布局,如果这层住在里面会被父级的尺寸约束住(vibedraw 踩过,专门写了 !important 修正)。
+ *       弹层用的是 flex 布局,如果这层住在里面会被父级的尺寸约束住(hamdraw 踩过,专门写了 !important 修正)。
  *
- * 交互照搬 vibedraw 的那套已验证写法:
+ * 交互照搬 hamdraw 的那套已验证写法:
  *   单指拖动 = 平移,双指捏合 = 以两指中点为锚缩放,双击 = 复位。
  *   状态只有一个 scale 与一对 offset,帧内合并用 runtime.createFrameTask。
  */

@@ -12,14 +12,14 @@ body:
     id: version
     attributes:
       label: PoseGi 版本
-      description: 见仓库 `hermit.json` 或应用内显示的名称。
+      description: 见仓库 `haminn.json` 或应用内显示的名称。
       placeholder: "例如 0.1.3"
     validations:
       required: true
   - type: input
-    id: hermit-version
+    id: haminn-version
     attributes:
-      label: Hermit 版本
+      label: Haminn 版本
       placeholder: "例如 1.11.0 (versionCode 80)"
     validations:
       required: true
