@@ -84,11 +84,11 @@ python3 tools/package.py --check      # 只校验不写入
 **Haminn 家族 —— 一个安卓宿主 + 若干可自由改造的应用**
 
 - **Haminn**(宿主,先装这个)：<https://haminn.airen.life/> · <https://github.com/zhyuzh3d/haminnapp>
-- **chataxi**(多角色 AI 群聊)：<https://chataxi.airen.life/> · <https://github.com/zhyuzh3d/chataxi>
+- **Chataxi**(多角色 AI 群聊)：<https://chataxi.airen.life/> · <https://github.com/zhyuzh3d/chataxi>
 - **HamDraw**(实时 AI 绘图)：<https://hamdraw.airen.life/> · <https://github.com/zhyuzh3d/hamdraw>
 - **PoseGi**(3D 摆姿生图)：<https://posegi.airen.life/> · <https://github.com/zhyuzh3d/PoseGi> —— **本仓库**
 
-三个 happ 都必须先装 Haminn 宿主,再在[应用广场](https://haminn.airen.life/pages/happs.html)添加。PoseGi 与 chataxi,HamDraw 互不依赖,只做相互推荐,生图接口可以复用 HamDraw 的 ComfyUI HamDraw Plugin(CVP)方式接入。
+三个 happ 都必须先装 Haminn 宿主,再在[应用广场](https://haminn.airen.life/pages/happs.html)添加。PoseGi 与 Chataxi,HamDraw 互不依赖,只做相互推荐,生图接口可以复用 HamDraw 的 ComfyUI HamDraw Plugin(CVP)方式接入。
 
 ## 贡献
 
