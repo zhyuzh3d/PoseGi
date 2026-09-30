@@ -178,7 +178,7 @@
   }
 
   /* 生图链路:查的是"配置能不能落到一次真实调用上" —— 有卡、激活项指向其中一张、
-     协议认识、CVP 卡带任务、分辨率是正数,以及图片资产层在不在。
+     协议认识、CHP 卡带任务、分辨率是正数,以及图片资产层在不在。
      它**不发起任何请求**(自检不许弹窗、不许生图),所以只验装配与配置自洽。
      旧的这里是"尚未实现(框架阶段)"的占位;现在是真检查,失败能指出是哪一项。 */
   function checkEngine() {
@@ -191,15 +191,17 @@
     if (!active) problems.push("没有激活的模型卡");
     else {
       if (ids.indexOf(active.protocol) < 0) problems.push("未知协议 " + active.protocol);
-      if (active.protocol === "cvp" && !active.task) problems.push("CVP 卡没有任务");
-      if (!(Number(active.size) > 0)) problems.push("分辨率不是正数");
+      if (active.protocol === "chp" && !active.task) problems.push("CHP 卡没有任务");
+      /* 分辨率取**真正会发出去**的那条(见 providers.resolutionText):chp 卡上卡里存的
+         那条只是"上次挑的",插件当前没有 9:16 档时它是空串 —— 那正是要报出来的事。 */
+      if (!/^\d+x\d+$/.test(providers.resolutionText(active))) problems.push("这个场景没有可用的分辨率");
       if (!(Number(active.refStrength) > 0)) problems.push("参考图强度不是正数");
     }
     if (typeof app.services.assets.resolve !== "function") problems.push("图片资产层没装配");
     return {
       ok: problems.length === 0,
       detail: problems.length ? problems.join(";")
-        : models.length + " 张模型卡,使用中:" + active.name + "(" + active.protocol + " / " + active.size + "px / 强度 " + active.refStrength + ")"
+        : models.length + " 张模型卡,使用中:" + active.name + "(" + active.protocol + " / " + providers.resolutionText(active) + " / 强度 " + active.refStrength + ")"
     };
   }
 

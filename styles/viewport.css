@@ -46,6 +46,26 @@
   pointer-events: none;
 }
 
+/* 生成期间,状态行前面挂一枚转圈(2026-09-30 用户要求:「加载进度动画要一直显示,
+   不能出现卡住的情况」)。这一行是灰的、小的、静止的 —— 而 CHP 插件不报百分比,
+   两次进度变化之间可能安静十几秒,那段时间屏幕上没有任何东西在动。
+   用 ::before 而不是往行里塞子节点:status() 写的是 textContent,子节点会被它冲掉。
+   转一圈 0.8 秒:比呼吸灯快,因为它是"还在算"而不是"在闪"。 */
+.stage-caption.is-busy::before {
+  content: "";
+  display: inline-block;
+  width: 10px; height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 2px solid var(--muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ring-spin .8s linear infinite;
+}
+
+/* 两个转圈(状态行那枚、生成弹窗那枚)共用这一条:两处各写一份迟早一圈快一圈慢 */
+@keyframes ring-spin { to { transform: rotate(360deg); } }
+
 /* 自转滑杆:一行,浮在按钮条之上,只在选中可转关节时出现。
    为什么用 fixed 浮层而不是布局里的一行:舞台要"除顶栏外占满屏幕"(有 stage() 探针在量),
    加进流里会把 3D 区域压掉一截。材质与顶栏同一套毛玻璃 —— 它同样压在场景上。
@@ -157,7 +177,9 @@
 }
 
 .pose-tile i { font-size: 26px; color: var(--accent); }
-.pose-tile span { margin-top: 9px; font-size: 12.5px; font-weight: 600; }
+/* 标签不换行(2026-09-30 用户要求:所有按钮都不许把字断开)。
+   格子是"三等分 + 图标 + 一行字",字被断成两行会让整块网格高低不齐。 */
+.pose-tile span { margin-top: 9px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .pose-tile:active { border-color: var(--accent); background: var(--accent-soft); }
 
 /* ---------- 选取:上一个 / 下一个 / 对面 ----------
@@ -167,16 +189,39 @@
 .joint-nav .button + .button { margin-left: 6px; }
 .joint-nav i { margin-right: 5px; font-size: 11px; }
 
-/* 面板中间那条横线:上面是当前关节的三条通道,下面是全部关节 */
+/* 面板中间那条横线:上面是当前关节的三条通道,下面是全部关节
+   (只剩 settings 在用;关节面板上那条 2026-09-30 换成了下面的折叠三角) */
 .sheet-divider { height: 1px; margin: 14px 0 12px 0; background: var(--line); }
 
+/* 关节列表的折叠三角(2026-09-30 用户要求:「点选对象后下面的列表折叠为一个小三角,
+   整个弹窗高度变小」)。三角兼作分隔线:整条 20px 都能点,但图标只有一行字那么高,
+   所以收起时弹窗几乎不占高度。
+   不写 :focus-visible —— 旧 WebView 会让整条规则失效。 */
+.pick-fold { display: flex; justify-content: center; margin: 6px 0 2px 0; }
+
+.pick-toggle {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; min-height: 20px; padding: 0;
+  border: 0; background: transparent; color: var(--muted);
+}
+
+.pick-toggle i { font-size: 13px; }
+.pick-toggle:active { color: var(--accent); }
+
 .pick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+
+/* [hidden] 必须显式写:**这一条漏掉就藏不起来** —— 作者样式里的 display:grid
+   会盖过浏览器默认的 [hidden]{display:none},收起的列表会照样铺满一屏。
+   同一个坑在 .gen-progress / .button 上都踩过。 */
+.pick-grid[hidden] { display: none; }
 
 .pick-tile {
   min-height: 38px; padding: 5px 4px;
   border: 1px solid var(--line-strong); border-radius: 10px;
   background: var(--surface-strong); color: var(--ink);
   font-size: 12px;
+  /* 关节名是一个整词(「左肩」「Head」),断成两行会跟相邻格子对不齐 */
+  white-space: nowrap;
 }
 
 .pick-tile.is-on { border-color: var(--accent); background: var(--accent); color: #fff; }
@@ -200,6 +245,39 @@
 .tool-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 .tool-row.is-on { border-color: var(--accent); background: var(--accent-soft); }
 
+/* ---------- 生成:弹窗顶上的进度条 ----------
+   2026-09-30 用户要求:「生成的时候,加载进度动画要一直显示。(不能出现卡住的情况,
+   有进度但优化)」。弹窗里原本只有一颗把字换成"渲染中"的按钮 —— 静止的,
+   而 CHP 插件不报百分比,等待期间可能十几秒没有任何变化。
+   于是这里放一枚常转的圈 + 一句带秒数的话:秒数由界面自己数(见 features/editor.js 的
+   progressText),服务端不说话它也照走 —— 这就是"它没卡住"的证据。 */
+.gen-progress {
+  display: flex; align-items: center;
+  margin: 0 0 12px 0; padding: 8px 10px;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--accent-soft); color: var(--ink);
+  font-size: 12px;
+}
+
+/* 与状态行那枚同一个做法:一圈缺口,靠转动表示"还在算"。
+   用 border-top-color: transparent 而不是画一张图 —— 这个内核上没有可用的
+   内置 spinner,CSS 边框圈在 Chrome 83 上就已经是标准做法。 */
+.gen-spinner {
+  flex: 0 0 auto;
+  width: 12px; height: 12px; margin-right: 8px;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ring-spin .8s linear infinite;
+}
+
+.gen-progress-text { flex: 1 1 auto; min-width: 0; line-height: 1.45; }
+
+/* [hidden] 必须显式写:**这一条漏掉就藏不起来** —— 作者样式里的 display:flex
+   会盖过浏览器默认的 [hidden]{display:none},空进度条会一直挂在弹窗顶上
+   (stage-fallback、.button、.modal-actions 都踩过同一个坑)。 */
+.gen-progress[hidden] { display: none; }
+
 /* ---------- 生成:历史成图缩略图 ----------
    缩略图是正方形。Chrome 83 没有 aspect-ratio,所以用经典的
    "height:0 + padding-bottom:100%" 撑比例,图片绝对定位填满 —— 这条在任何版本都成立。 */
@@ -209,6 +287,13 @@
 
 .result-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-bottom: 16px; }
 
+/* 一格 = 缩略图 + 右上角的删除钮(2026-09-30 用户要求:「每个图片右上角提供一个
+   删除按钮,删掉这个图片,不占用 12 个槽位」)。删除钮必须是缩略图的**兄弟**节点:
+   缩略图自己就是个 button,button 里再嵌一个 button 是非法嵌套,点击也会被外层吞掉。
+   格子不加 padding —— 缩略图靠自己的 padding-bottom:100% 撑正方形,宽度即列宽。 */
+.result-cell { position: relative; min-width: 0; }
+.result-cell > .result-thumb { width: 100%; }
+
 .result-thumb {
   position: relative; display: block;
   width: 100%; height: 0; padding: 0 0 100% 0;
@@ -216,6 +301,18 @@
   border: 1px solid var(--line-strong); border-radius: 10px;
   background: var(--surface-strong);
 }
+
+/* 删除钮压在自己的深底上:亮图上白叉会读不出来 */
+.result-delete {
+  position: absolute; right: 3px; top: 3px;
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: rgba(10,12,16,.62); color: #fff;
+  font-size: 11px;
+}
+
+.result-delete:active { background: var(--danger); }
 
 .result-thumb img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
 
@@ -233,10 +330,33 @@
 
 .empty-hint { margin: 14px 0 18px 0; color: var(--muted); font-size: 12.5px; text-align: center; }
 
-/* 生成中的那颗 dock 按钮转成黑色(用户要求:「生成时候外面的生成按钮是黑色的,但仍然可以用」)。
-   黑色是"正在渲染"的信号,但按钮本身不 disabled —— 点它照样能打开弹窗看进度。 */
-.dock-button.is-busy { background: #0b0c0e; border-color: #0b0c0e; color: #fff; }
-.dock-button.is-busy i { color: #fff; }
+/* 生成中的那颗 dock 按钮转成黑色(用户要求:「生成时候外面的生成按钮是黑色的,但仍然可以用」),
+   但**呼吸的是那颗图标,不是按钮**(2026-09-30 用户要求:「正在渲染的时候,不是渲染按钮呼吸闪烁发光,
+   而是渲染 icon 呼吸发光」)。黑色是"正在渲染"的信号,按钮本身不 disabled —— 点它照样能打开弹窗看进度。
+
+   所以:按钮只留一块静态的黑底(连边框一起黑掉,让它看起来是一整块),
+   明暗循环只发生在 `i` 上 —— 颜色加一点冷紫 + text-shadow 往外发光。
+   周期 1.9s、ease-in-out:两头各停一下,读起来像吸气与呼气,而不是方波。 */
+@keyframes dock-icon-breathe {
+  0%, 100% { color: #fff; text-shadow: 0 0 0 rgba(154,154,245,0); }
+  50% { color: #b9b9ff; text-shadow: 0 0 12px rgba(154,154,245,.9), 0 0 22px rgba(154,154,245,.5); }
+}
+
+.dock-button.is-busy {
+  background: #0b0c0e; color: #fff;
+  border-color: #0b0c0e;
+}
+.dock-button.is-busy i { animation: dock-icon-breathe 1.9s ease-in-out infinite; }
+
+/* 降级:系统开了"减少动态效果"就不循环,改成图标**常亮** ——
+   状态信号不能因为省动效而消失,只是不再明暗呼吸。 */
+@media (prefers-reduced-motion: reduce) {
+  .dock-button.is-busy i {
+    animation: none;
+    color: #b9b9ff;
+    text-shadow: 0 0 12px rgba(154,154,245,.9);
+  }
+}
 
 /* 窄屏把六个按钮再收一档:6 × 46 + 5 × 5 = 301,加左右 20 的内边距 = 321,
    360 宽的机器也排得下(此前 5 个按钮时是 52 与 6)。 */

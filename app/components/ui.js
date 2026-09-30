@@ -1,8 +1,10 @@
-/* 界面基元:提示条、底部弹层、确认框、按钮动作包装
+/* 界面基元:提示条、底部弹层、确认框、选择框、按钮动作包装
  *
  * 责任:只处理 DOM 与语义事件,不含业务判断。
  * 约束:必须用 Android WebView 能跑的定位方式(fixed + 四边),不用 flex gap。
- * 用法:app.components.ui.toast(text, "error") / openSheet({...}) / confirm({...}) / action(fn)
+ *      界面上不出现任何系统控件:确认与选择都是自绘的一层(2026-09-30 用户要求)。
+ * 用法:app.components.ui.toast(text, "error") / openSheet({...}) / confirm({...}) /
+ *      choose({...}) / action(fn)
  */
 (function (app) {
   "use strict";
@@ -23,12 +25,19 @@
     nodes.confirmMessage = node("confirm-message");
     nodes.confirmOk = node("confirm-ok");
     nodes.confirmCancel = node("confirm-cancel");
+    nodes.pickerLayer = node("picker-layer");
+    nodes.pickerTitle = node("picker-title");
+    nodes.pickerList = node("picker-list");
     Array.prototype.forEach.call(document.querySelectorAll("[data-close-modal]"), function (button) {
       button.onclick = closeSheet;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-close-picker]"), function (button) {
+      button.onclick = function () { settleChoice(null); };
     });
     if (nodes.confirmCancel) nodes.confirmCancel.onclick = function () { settle(false); };
     if (nodes.modalLayer) nodes.modalLayer.hidden = true;
     if (nodes.confirmLayer) nodes.confirmLayer.hidden = true;
+    if (nodes.pickerLayer) nodes.pickerLayer.hidden = true;
     return nodes;
   }
 
@@ -99,7 +108,10 @@
 
   function confirm(options) {
     var value = options || {};
-    if (!nodes.confirmLayer) return Promise.resolve(window.confirm(String(value.message || "")));
+    /* 这一层是 index.html 里的固定结构,拿不到就是页面自己坏了 ——
+       不再退到 window.confirm:那个系统弹窗的配色与字体与这里完全是两套,
+       而"看起来像别人的界面"正是用户 2026-09-30 要求清掉的东西。 */
+    if (!nodes.confirmLayer) return Promise.resolve(false);
     if (pendingConfirm) settle(false);
     nodes.confirmTitle.textContent = String(value.title || "");
     nodes.confirmMessage.textContent = String(value.message || "");
@@ -108,6 +120,46 @@
     nodes.confirmOk.onclick = function () { settle(true); };
     nodes.confirmLayer.hidden = false;
     return new Promise(function (resolve) { pendingConfirm = resolve; });
+  }
+
+  /* 选择框:一列选项,点一条就定了,点背景或关闭按钮算没选(回 null)。
+   *
+   * 为什么单开一层而不是复用底部弹层:选择框总是在**某张表单里面**被点开
+   * (模型卡、翻译卡),而底部弹层是单例 —— 复用就等于把表单连同已经填好的
+   * 地址与密码一起顶掉。所以它像确认框那样自己占一层,表单原样留在下面,
+   * 选完关掉这一层,用户回到的是他刚才那张表单。
+   *
+   * items 形如 [[value, label], …];不分页、不做搜索:选项最多八条
+   * (插件公布的画幅档数),一屏能看完的事不需要再套一层查找。 */
+  var pendingChoice = null;
+
+  function settleChoice(value) {
+    if (!pendingChoice) return;
+    var resolve = pendingChoice;
+    pendingChoice = null;
+    if (nodes.pickerLayer) nodes.pickerLayer.hidden = true;
+    resolve(value);
+  }
+
+  function choose(options) {
+    var value = options || {}, items = value.items || [];
+    if (!nodes.pickerLayer) return Promise.resolve(null);
+    if (pendingChoice) settleChoice(null);
+    nodes.pickerTitle.textContent = String(value.title || app.i18n.text("请选择", "Choose"));
+    nodes.pickerList.innerHTML = items.map(function (item) {
+      var picked = String(item[0]) === String(value.current);
+      return '<button type="button" class="picker-option' + (picked ? " is-selected" : "") +
+        '" data-picker-option="' + app.utils.escapeHtml(item[0]) + '"' + (picked ? ' aria-current="true"' : "") + '>' +
+        "<span>" + app.utils.escapeHtml(item[1]) + "</span>" +
+        '<i class="fa-solid fa-check" aria-hidden="true"></i></button>';
+    }).join("");
+    /* 逐项绑而不是事件委托:列表每次重画,数量是个位数,而委托要往上找祖先,
+       旧内核上 Element.closest 不一定在。 */
+    Array.prototype.forEach.call(nodes.pickerList.querySelectorAll("[data-picker-option]"), function (button) {
+      button.onclick = function () { settleChoice(button.dataset.pickerOption); };
+    });
+    nodes.pickerLayer.hidden = false;
+    return new Promise(function (resolve) { pendingChoice = resolve; });
   }
 
   /* 按钮动作包装:执行期间禁用按钮,异常统一变成提示。
@@ -142,6 +194,7 @@
     closeSheet: closeSheet,
     sheetOpen: sheetOpen,
     confirm: confirm,
+    choose: choose,
     action: action
   };
 })(window.posegi);

@@ -112,43 +112,39 @@
    * 表单就地换掉列表:开第二个 sheet 会叠在第一个上面,
    * 而"返回列表"只需要再渲染一次 —— 少一层弹层,少一类层级 bug。
    *
-   * 译文那一块是这个表单的重点:用户标的「需要翻译为英文」会在生图时把这段中文
-   * 换成英文发给模型,那他必须能在这里看见译文、并且能手动催一次翻译
-   * (第一次生图之前缓存里还没有这句话,不给按钮就只能靠"先生成一次"来触发)。 */
+   * 这里**没有译文那一块**。2026-09-30 用户定稿把翻译改成"提交时自动做":
+   * 「如果模型需要翻译为英文,那么,如果配置了翻译模型,每次提交的时候 PoseGi 就自动
+   *   使用这个翻译模型进行翻译,然后缓存备用避免下次同样内容重复调用模型翻译」;
+   * 于是界面上所有翻译按钮与输入框都撤了,用户在这张表单里只剩标题与角色描述两件事。
+   * 英文译文由 services/image-engine.js 在提交那一刻自动翻、自动存进作品,
+   * 不必用户过问;这一层唯一还能看见的痕迹是 label 上那句提示
+   * (没有配翻译模型时才有,见 components/translate-hint.js)。 */
 
-  function translationHtml(prompt, pair) {
-    var english = app.services.translate.fromPair(pair, prompt);
-    if (english) {
-      return '<div class="translate-block"><span class="section-label">' + t("英文译文", "English") + "</span>" +
-        '<p class="translate-text">' + esc(english) + "</p>" +
-        '<p class="field-help">' + t("这段译文存在本机,生图时直接用它,不会重复翻译。", "This translation is stored on the device and reused, so it is never translated twice.") + "</p></div>";
-    }
-    var hasCjk = app.services.translate.hasCjk(prompt);
-    return '<div class="translate-block"><span class="section-label">' + t("英文译文", "English") + "</span>" +
-      '<p class="translate-text is-empty">' +
-      (hasCjk ? t("还没有译文,点右边翻译一次", "No translation yet. Translate it once on the right.")
-        : t("描述里没有中文,不需要翻译", "The description has no Chinese, so nothing to translate")) + "</p>" +
-      (hasCjk ? '<div class="button-row"><button class="button button-secondary" type="button" data-translate-now>' +
-        t("立即翻译", "Translate now") + "</button></div>" : "") + "</div>";
-  }
-
-  function openEditForm(id) {
+  function openEditForm(id, options) {
     if (!host) return;
     var item = find(id);
     if (!item) { paintList(); return; }
+    /* 离开这张表单之后去哪。作品列表里点进来 = 回列表;
+       主菜单的「编辑作品」点进来时列表根本没打开过,回列表会很怪 —— 那种情况直接关掉弹层。 */
+    var back = options && options.back === "close" ? "close" : "list";
     editing = String(id);
     var draft = { title: String(item.title || ""), prompt: String(item.prompt || "") };
-    var pair = { promptEn: item.promptEn || null };
+
+    function leave() {
+      editing = "";
+      if (back === "close") app.components.ui.closeSheet();
+      else paintList();
+    }
 
     function paint() {
       host.innerHTML =
         '<label class="field"><span>' + t("标题(留空自动取名)", "Title (auto-named when empty)") + '</span>' +
         '<input name="title" type="text" value="' + esc(draft.title) + '" placeholder="' + esc(app.services.store.untitledTitle()) + '"></label>' +
-        '<label class="field"><span>' + t("角色描述", "Description") + '</span>' +
+        '<label class="field"><span>' + t("角色描述", "Description") +
+        app.components.translateHint.labelHint() + '</span>' +
         '<textarea name="prompt" rows="3" placeholder="' + esc(t("例如:一个女孩站在海边,傍晚的光", "For example: a girl standing by the sea at dusk")) + '">' +
         esc(draft.prompt) + "</textarea></label>" +
         '<p class="field-help">' + t("描述会在每次生成时提交给模型,之后随时可以回来改。", "The description is sent to the model on every generation and can be edited later.") + "</p>" +
-        '<div id="translate-slot"></div>' +
         '<div class="sheet-actions">' +
         '<button class="button button-secondary" type="button" data-cancel>' + t("返回", "Back") + "</button>" +
         '<button class="button button-primary" type="button" data-save>' + t("保存", "Save") + "</button>" +
@@ -156,41 +152,17 @@
 
       var titleInput = host.querySelector('[name="title"]');
       var promptInput = host.querySelector('[name="prompt"]');
-      var slot = host.querySelector("#translate-slot");
       titleInput.oninput = function () { draft.title = titleInput.value; };
-      promptInput.oninput = function () {
-        var changed = draft.prompt !== promptInput.value;
-        draft.prompt = promptInput.value;
-        /* 描述一改,原来那块译文就不再对应当前这句话了 —— 就地重画那一块,
-           别让它继续显示旧译文(用户会以为改描述之后译文也跟着变)。 */
-        if (changed) paintTranslation();
-      };
-      function paintTranslation() {
-        slot.innerHTML = translationHtml(draft.prompt, pair);
-        var now = slot.querySelector("[data-translate-now]");
-        if (now) now.onclick = app.components.ui.action(translateNow);
-      }
-      async function translateNow() {
-        var text = String(draft.prompt || "").trim();
-        if (!text) return;
-        var results = await app.services.translate.translate([text]);
-        if (!app.services.translate.translated(text)) {
-          app.components.ui.toast(results.length
-            ? t("翻译服务没有给出译文,请到「软件设置」里检查翻译模型", "The translator returned no English. Check the translation model in Preferences.")
-            : t("译英服务还没配置好,请到「软件设置」里添加中英文翻译模型", "The translator is not set up yet. Add a translation model in Preferences."), "error");
-          return;
-        }
-        /* 顺手把译文写进作品(也写进列表索引),这样关掉弹层再进来它就还在 */
-        await app.services.store.updateWork(id, { title: draft.title, prompt: draft.prompt });
-        pair = { promptEn: app.services.translate.pair(draft.prompt, "") };
-        paintTranslation();
-      }
-      paintTranslation();
+      promptInput.oninput = function () { draft.prompt = promptInput.value; };
 
-      host.querySelector("[data-cancel]").onclick = paintList;
+      host.querySelector("[data-cancel]").onclick = leave;
       host.querySelector("[data-save]").onclick = app.components.ui.action(async function () {
+        /* **不递 english**。英文译文留给提交那一刻自动翻(image-engine 的 prepare),
+           store.pairFor 收到"没递过来"就按缓存里那句现成的挂上 —— 于是改描述时
+           旧译文自然作废(原文对不上),而缓存里正好有新译文就顺手补上。
+           绝不用一次保存把已有的译文清掉,这正是 pairFor 那条规则存在的理由。 */
         await app.services.store.updateWork(id, { title: draft.title, prompt: draft.prompt });
-        await paintList();
+        leave();
         app.components.ui.toast(t("作品已更新", "Artwork updated"));
       });
     }

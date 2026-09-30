@@ -1,23 +1,27 @@
 /* 中英翻译服务(2026-09-25 用户要求)
  *
  * 责任:把中文角色描述译成英文,并把译文缓存到宿主数据区,同一句话只翻一次。
- * 约束:默认走 CVP 插件自带的翻译接口(`/hamdraw/v1/translate`,与生图共用一套
+ * 约束:默认走 CHP 插件自带的翻译接口(`/chp/translate`,与生图共用一套
  *       地址与密码,用户不必另外申请 key)。2026-09-26 用户要求再支持
  *       DeepSeek / Qwen / OpenAI / Claude / Gemini —— 前三家都是 OpenAI 兼容的
  *       `/chat/completions`,所以归成一项;请求组装按 protocol 分派(见文末 PROTOCOLS)。
- *       **除 CVP 外都要用户自己填地址、模型 ID 与 key。**
+ *       **除 CHP 外都要用户自己填地址、模型 ID 与 key。**
  *
  * 三件事要说清:
  *
- * 1) **什么时候翻**。生图那一刻(不是打字时、不是保存时)。判据是"当前这张模型卡
- *    标了需要英文"(`needsEnglish === true`)而且提示词里有中文。卡没标就不翻 ——
- *    插件拿到中文自己也能画,凭空多一次往返只会拖慢出图。
- *    生成弹窗里那个「翻译」按钮走的是同一条路(用户主动点,翻完显示在输入框下面)。
+ * 1) **什么时候翻**。生图那一刻(不是打字时、不是保存时)。判据是三件事同时成立:
+ *    界面中文(`wanted()`)、当前这张模型卡标了需要英文(`needsEnglish === true`)、
+ *    而且**它不是 CHP 卡**。后面那条是 2026-09-30 用户定的:「CHP 内部可以对模型的工作流
+ *    添加翻译节点,就是说 CHP 提供的模型都可以视为不需要中文翻译英文」—— 而且客户端译英
+ *    的后端本来就是同一个插件(见 connection()),提前翻一次只是多一个来回。
+ *    判据的唯一出口是 `needed(model)`;界面要知道"这套机制现在在不在用"就问 `relevant()`,
+ *    两处各判一次必然分叉(曾经就是这样:框没了而请求里还在翻)。
+ *    2026-09-30 之前这里还有过一个「翻译」按钮,定稿后整套 UI 都撤了 —— 翻译是自动的。
  *
  * 2) **翻完存哪**。两级:进程内的 cache(键 = 中文原文),以及作品记录里的
- *    `promptEn { source, text }`。前者是"这句话以后不用再翻",后者是
- *    "这件作品的译文跟着它走" —— 作品列表的编辑界面显示的就是后者,
- *    否则换个作品、换个进程就显示不出已经翻过的英文了。
+ *    `promptEn { source, text }`。前者是"这句话以后不用再翻";后者是
+ *    "这件作品的译文跟着它走" —— 提交时如果它还对得上当前原文就先用它,不必等到
+ *    下次开机 cache 空掉再重翻一遍(见 image-engine 的 prepare 第一步)。
  *
  * 3) **翻译失败怎么办**。**绝不拦生成**。接口不可达、密码不对、模型没加载,
  *    一律退回原文交给插件(它自己也会译英),只把这件事报给用户看一眼。
@@ -66,15 +70,15 @@
   /* ---------- 接口格式 ----------
    * 每家只差三件事:请求打到哪个路径、消息怎么装、回复从哪儿取译文。
    * 合成一张表,加一家只改这一处(与 providers 的协议表同一个思路)。
-   * 认证头也在这里定:CVP 与 OpenAI 兼容都是 Bearer,Claude 要 x-api-key,
+   * 认证头也在这里定:CHP 与 OpenAI 兼容都是 Bearer,Claude 要 x-api-key,
    * Gemini 要 x-goog-api-key —— 用错头只会换来一句语焉不详的 401。 */
   var PROTOCOLS = {
-    cvp: {
-      zh: "ComfyUI Hamdraw 插件(推荐)", en: "ComfyUI Hamdraw Plugin (recommended)",
-      zhHelp: "插件自带翻译大模型,地址与密码就是生图那一套,不用另外申请 key。",
-      enHelp: "The plugin ships the translation model; the address and password are the same ones your image cards use.",
+    chp: {
+      zh: "CHP 插件（ComfyUI Haminn Protocol,推荐）", en: "CHP Plugin (ComfyUI Haminn Protocol, recommended)",
+      zhHelp: "插件自带翻译大模型,地址与密码就是生图那一套,不用另外申请 key。翻译路径也从插件文档的 endpoints 里读。",
+      enHelp: "The plugin ships the translation model; the address and password are the same ones your image cards use. The translate path is read from the plugin document's endpoints too.",
       /* 这条只是输入框里的样例(占位符),与模型卡共用同一份出处 */
-      endpoint: app.defaults.cvpEndpoint, model: ""
+      endpoint: app.defaults.chpEndpoint, model: ""
     },
     openai: {
       zh: "OpenAI 兼容(DeepSeek / Qwen / OpenAI)", en: "OpenAI compatible (DeepSeek / Qwen / OpenAI)",
@@ -100,8 +104,8 @@
     "no quotes, no notes, no alternatives.";
 
   function protocolOf(value) {
-    var id = String(value && value.protocol || "cvp");
-    return Object.prototype.hasOwnProperty.call(PROTOCOLS, id) ? id : "cvp";
+    var id = String(value && value.protocol || "chp");
+    return Object.prototype.hasOwnProperty.call(PROTOCOLS, id) ? id : "chp";
   }
 
   function stripSlash(value) { return String(value || "").replace(/\/+$/, ""); }
@@ -112,9 +116,9 @@
     return new RegExp("/" + version + "$").test(root) ? root : root + "/" + version;
   }
 
-  /* 译英服务跟着 CVP 连接走。单独在设置里填了 endpoint 就以那份为准(比如翻译跑在
+  /* 译英服务跟着 CHP 连接走。单独在设置里填了 endpoint 就以那份为准(比如翻译跑在
      另一台机器上,或者干脆用云端模型);没填就借生图用的那套地址与密码 ——
-     那条路一定是 CVP,因为只有 cvp 卡共用一份 connection。 */
+     那条路一定是 CHP,因为只有 chp 卡共用一份 connection。 */
   function connection() {
     var own = app.config && app.config.translate;
     if (own && source(own.endpoint)) {
@@ -127,7 +131,7 @@
     var shared = app.config && app.config.connection;
     if (shared && source(shared.endpoint)) {
       return {
-        protocol: "cvp", endpoint: source(shared.endpoint),
+        protocol: "chp", endpoint: source(shared.endpoint),
         apiKey: String(shared.apiKey || ""), model: "",
         customHeaders: String(shared.customHeaders || "")
       };
@@ -144,9 +148,12 @@
     if (item.apiKey && !output.Authorization && !output.authorization) {
       output.Authorization = "Bearer " + item.apiKey;
     }
-    if (protocol === "cvp") {
+    if (protocol === "chp") {
+      /* `chp/2` 起地址一律从插件文档的 endpoints 里读(客户端不许自己拼);
+         `/chp/translate` 只是没读过文档时的推荐回落。 */
+      var internals = app.services.providers.internals;
       return {
-        url: app.services.providers.internals.cvpBase(item.endpoint) + "/hamdraw/v1/translate",
+        url: internals.chpUrl(internals.chpBase(item.endpoint), "translate", "/chp/translate"),
         headers: output,
         bodyText: JSON.stringify({ texts: prompts, target: "en" })
       };
@@ -187,7 +194,7 @@
   function extract(protocol, payload, position) {
     var index = Number(position) || 0;
     if (!payload) return "";
-    if (protocol === "cvp") {
+    if (protocol === "chp") {
       var entry = payload.results && payload.results[index];
       return entry && entry.translated ? source(entry.text) : "";
     }
@@ -218,7 +225,7 @@
      让云端模型自己吐一个 JSON 数组,回错了还得猜着解析,失败面更大。 */
   async function ask(item, texts) {
     var protocol = protocolOf(item);
-    var groups = protocol === "cvp" ? [texts] : texts.map(function (one) { return [one]; });
+    var groups = protocol === "chp" ? [texts] : texts.map(function (one) { return [one]; });
     var results = [];
     for (var index = 0; index < groups.length; index += 1) {
       var group = groups[index];
@@ -235,7 +242,7 @@
       group.forEach(function (prompt, position) {
         var text = cleanup(extract(protocol, payload, position));
         /* 回来的还是中文(或空)就不算译文 —— 宁可按原文发,也别把中文当英文塞回去。
-           CVP 自己给 translated 标志,别家没有,所以统一按"译文里不该有汉字"判。 */
+           CHP 自己给 translated 标志,别家没有,所以统一按"译文里不该有汉字"判。 */
         var usable = Boolean(text) && !hasCjk(text);
         if (usable) cache[prompt] = text;
         results.push({ text: usable ? text : prompt, translated: usable });
@@ -255,8 +262,8 @@
   function translated(text) { var key = source(text); return Boolean(key && cache[key]); }
 
   /* 作品里存的那对译文与它的原文。原文改了这对就作废 ——
-     否则用户把「一个科幻女战士」改成「一个古代剑客」,编辑界面还显示着
-     "a sci-fi female warrior"。 */
+     否则用户把「一个科幻女战士」改成「一个古代剑客」,提交时还会拿那句
+     "a sci-fi female warrior" 去发(记录里看着是改了,画出来却不是那句话)。 */
   function pair(prompt, englishText) {
     var key = source(prompt);
     if (!key) return null;
@@ -303,7 +310,7 @@
       customHeaders: String(config && config.customHeaders || "")
     };
     if (!item.endpoint) throw new Error(t("请先填写翻译服务地址", "Enter the translation endpoint first"));
-    if (protocol !== "cvp" && !item.model) throw new Error(t("请填写模型 ID", "Enter the model id"));
+    if (protocol !== "chp" && !item.model) throw new Error(t("请填写模型 ID", "Enter the model id"));
     var request = buildRequest(protocol, item, [PROBE_TEXT]);
     var response = await app.platform.haminn.request({
       url: request.url, method: "POST", headers: request.headers,
@@ -319,13 +326,33 @@
     cache[PROBE_TEXT] = text;
     persist();
     /* 报给界面看的"实际用了哪个模型":插件会自报 engine,别家就是我们填的模型 ID */
-    var engine = protocol === "cvp" ? source(payload && payload.engine) : source(item.model);
+    var engine = protocol === "chp" ? source(payload && payload.engine) : source(item.model);
     return { engine: engine, example: PROBE_TEXT, text: text };
   }
 
-  /* 生图时到底翻不翻:卡标了要英文,而且译英服务测通过。 */
-  function needed(model) { return Boolean(model && model.needsEnglish === true); }
+  /* 生图时到底要不要先译英:卡标了要英文、界面中文,而且**不是 CHP 卡**。
+     最后那一条是 2026-09-30 用户定的:「CHP 内部可以对模型的工作流添加翻译节点,
+     就是说 CHP 提供的模型都可以视为不需要中文翻译英文」。
+     理由比"插件会帮我们译"还硬一层:客户端译英的后端**本来就是同一个插件**
+     (见 connection() —— 没单独填翻译地址时借 config.connection),而插件的
+     translation.mode 是 auto-on-submit。客户端提前翻一次只是多一个来回。 */
+  function needed(model) {
+    if (!wanted()) return false;
+    if (!model || model.needsEnglish !== true) return false;
+    return String(model.protocol || "chp") !== "chp";
+  }
+  /* 译英这个机制该不该存在。界面用它决定显不显示那一整块,行为用它兜底。 */
+  function wanted() { return app.i18n.language() === "zh"; }
   function ready() { return Boolean(app.config && app.config.translate && app.config.translate.enabled) && Boolean(connection()); }
+
+  /* 当前这张**激活的**卡用不用得上译英这一套(2026-09-30 用户定:「如果当前激活的生图模型
+     不需要英文翻译,那么中文情况下也要去掉所有翻译相关的机制和UI」)。
+     它与 needed 是同一句话,只是替调用方把激活卡取出来 —— 界面各取各的就会出现
+     "框没了而请求里还在翻"那种分叉,而那种错在界面上一个字都看不出来。 */
+  function relevant() {
+    var providers = app.services.providers;
+    return needed(providers && providers.active ? providers.active() : null);
+  }
 
   app.services.translate = {
     protocols: PROTOCOLS,
@@ -338,6 +365,8 @@
     fromPair: fromPair,
     probe: probe,
     needed: needed,
+    wanted: wanted,
+    relevant: relevant,
     ready: ready,
     internals: { cache: cache, connection: connection, buildRequest: buildRequest, persist: persist, ask: ask }
   };

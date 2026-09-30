@@ -17,6 +17,12 @@
   min-height: 38px; padding: 8px 16px;
   border: 1px solid transparent; border-radius: var(--radius-sm);
   font-size: 13px; font-weight: 600;
+  /* **按钮上的字永远不换行**(2026-09-30 用户要求)。
+     这一条是必需的,不是保险:.button 是 flex 行里的 flex 项,默认 flex-shrink 为 1,
+     而中文的最短可断点只有**一个字** —— 一排按钮分不匀时,「测试连接」会被压成
+     「测/试/连/接」四行,按钮跟着长高,整排跟着变乱。写成 nowrap 之后按钮的最小
+     内容宽度就是整条标签的宽度,分不匀时宁愿挤到下一行也不把字断开。 */
+  white-space: nowrap;
 }
 
 .button-primary { background: var(--accent); color: #fff; }
@@ -28,17 +34,35 @@
    与 stage-fallback / 取消生成按钮是同一条规矩)。 */
 .button[hidden] { display: none; }
 
+/* 芯片也是按钮(任务档、语言档都靠它点),所以同一条规矩:标签不换行。
+   它与 .button 一样是 flex 行里的项:不写 nowrap 的话「高质量生图」会被压成两行,
+   一颗圆角药丸里顶着两行字,一眼就看得出坏了。 */
 .chip {
   min-height: 32px; padding: 5px 13px;
   border: 1px solid var(--line-strong); border-radius: 16px;
   background: var(--surface); color: var(--ink);
   font-size: 12.5px;
+  white-space: nowrap;
 }
 
 .chip.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .modal-layer { position: fixed; z-index: 120; left: 0; right: 0; top: 0; bottom: 0; }
 .modal-backdrop { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: rgba(20,22,28,.42); }
+
+/* 点选之后不留外框(2026-09-30 用户要求两处:「工具弹窗自身和内部元素,点选的时候不要有
+   外部的外框显示」、「全屏查看渲染图……底部四个工具按钮点击不要出现额外的外框」)。
+   三处都在画那个框,所以三处一起管:
+     · `.modal-sheet` 带 tabindex="-1",点它自己的空白(比如标题右边那片)就会聚焦,
+       UA 于是给**整块面板**描一圈 —— 那正是"弹窗自身有外框";
+     · 面板里的每一行 / 图标按钮点完各自留一圈;
+     · 全屏看图底部那四颗图标按钮同理。
+   **只管 `:focus`(点完一直留着的那一圈),不动 `-webkit-tap-highlight-color`** ——
+   那一下按压高亮是"点到了"唯一的即时反馈,连它一起抹掉,按钮按下去会像没反应。
+   也不写 `:focus-visible`:旧 WebView 不认这个伪类,而它和别的选择器写在同一条里会让
+   **整条规则被丢掉**,屏幕上的差别就是"外框又回来了"。 */
+.modal-layer :focus,
+.render-preview :focus { outline: none; }
 
 /* 弹窗(所有 sheet 与居中确认框都走这一个类)与顶栏同一套毛玻璃:
    半透明底 + 背后模糊 + 一道亮边。2026-09-25 用户要求:
@@ -79,6 +103,12 @@
    取消按钮于是"藏不起来",一直挂在生成弹窗右边(stage-fallback 踩过同一个坑)。 */
 .modal-actions > .button-block { flex: 1 1 auto; }
 .modal-actions > [data-cancel-generate] { flex: 0 0 auto; margin-left: 8px; }
+/* 「添加作品」表单底部那颗「取消」:它以前只有两个字那么宽(约 58px),跟左边那颗
+   吃满整行的主按钮摆在一起像是被挤剩的残渣。给一个下限,让它成为与主按钮**分这一行**
+   的第二个动作(2026-09-30 用户要求:取消按钮宽度要增大)。
+   用 min-width 而不是 flex-basis 百分比:一是窄屏上不会缩回去,二是「Cancel」
+   这种更长的词自己就能要更多位置。 */
+.modal-actions > [data-close-modal] { flex: 0 0 auto; min-width: 104px; }
 /* 底部那排里的图标按钮(生成弹窗右下的「模型列表」):宽度自适应 = 只吃图标自己
    那么宽,不参与主按钮的伸展。它和主按钮之间的 8px 由 .button + .button 给。 */
 .modal-actions > .button-icon { flex: 0 0 auto; padding: 8px 14px; }
@@ -121,29 +151,42 @@
 .field input::placeholder, .field textarea::placeholder { color: var(--muted); opacity: .7; }
 .field-help { margin: 0 0 12px 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 
-/* 接口模式是界面上唯一用原生 select 的控件(2026-09-26 用户要求改成下拉)。
-   原生外观在深色主题里是一块系统配色的浅底,所以外观自己画。
-   箭头交给 .select-wrap 的伪元素:select 本身不能上伪元素,而背景图里的颜色
-   吃不到主题变量(内联 SVG 只能写死颜色,主题一换就露馅)。 */
-.field select.select-input {
-  display: block; width: 100%; min-width: 0; min-height: 38px;
-  padding: 8px 34px 8px 10px;
-  border: 1px solid var(--line-strong); border-radius: 9px;
-  background-color: var(--surface-strong); color: var(--ink);
-  font-family: inherit; font-size: 13px;
-  -webkit-appearance: none; appearance: none;
+/* ---------- 选择行(自绘,不用原生 select) ----------
+   2026-09-26 这里曾经是一个原生 <select>:外观自己画了,但**弹出来的那一列**
+   永远是系统配色(浅底、系统字体),在这个深色玻璃界面上是另一套观感。
+   2026-09-30 用户要求界面上不出现系统控件,于是选项改由 app/components/ui.js 的
+   choose() 弹一层自绘列表(见 index.html 的 #picker-layer),这里只剩"行"本身:
+   一个只读按钮 + 一个 hidden input —— 值仍然住在 [name] 上。 */
+.field input[type="hidden"] { display: none; }
+.picker-field { position: relative; display: block; }
+.picker-button {
+  display: flex; align-items: center; width: 100%; min-width: 0; min-height: 38px;
+  padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 9px;
+  background: var(--surface-strong); color: var(--ink);
+  font-family: inherit; font-size: 13px; text-align: left;
 }
-.select-wrap { position: relative; display: block; }
-.select-wrap::after {
-  content: ""; position: absolute; top: 50%; right: 12px; margin-top: -3px;
-  border-left: 5px solid transparent; border-right: 5px solid transparent;
-  border-top: 6px solid var(--muted);
-  pointer-events: none;
+.picker-button > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-button > i { flex: 0 0 auto; margin-left: 8px; color: var(--muted); font-size: 11px; }
+
+/* 选项列表。一行一条,当前那条带勾 —— 用左边框而不是底色区分"当前",
+   因为它同时还是可点的按钮,底色留给按下态(见 base.css 的 .button:active 一族)。 */
+.picker-list { display: block; }
+.picker-option {
+  display: flex; align-items: center; width: 100%; min-width: 0;
+  padding: 11px 12px; margin-bottom: 6px;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-strong); color: var(--ink);
+  font-family: inherit; font-size: 13px; text-align: left;
 }
+.picker-option:last-child { margin-bottom: 0; }
+.picker-option > span { flex: 1 1 auto; min-width: 0; }
+.picker-option > i { flex: 0 0 auto; margin-left: 10px; color: var(--accent); opacity: 0; }
+.picker-option.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.picker-option.is-selected > i { opacity: 1; }
 /* 选中项那句说明紧贴控件,别用 .field-help 默认的 12px 底距把表单撑散 */
 .field > .field-help { margin: 6px 0 0; }
 /* 这一条**必须显式写**:上面 .field 的 display:block 会盖掉浏览器默认的
-   [hidden]{display:none},于是"藏起来的字段"照旧占一行 —— CVP 不需要模型 ID,
+   [hidden]{display:none},于是"藏起来的字段"照旧占一行 —— CHP 不需要模型 ID,
    那一行要能真的消失(与 .button[hidden] / .modal-actions[hidden] 同一条规矩)。 */
 .field[hidden] { display: none; }
 
@@ -161,10 +204,11 @@
 }
 .secret-input button:last-child { border-radius: 0 9px 9px 0; }
 
-/* 可选整行:把三行按钮平分成一列,用于作品库新建表单底部 */
+/* 可选整行:把按钮平分成一行。**只此一处** —— 这份样式原来在上面(.sheet-row 后面)
+   与这里各写了一遍,第二遍多出来的 `.button + .button` 间距与全局那条重复,
+   于是同一件事有了两处出处,改一处另一处不跟着动。 */
 .sheet-actions { display: flex; margin-top: 12px; }
 .sheet-actions .button { flex: 1 1 auto; }
-.sheet-actions .button + .button { margin-left: 8px; }
 
 .form-actions { display: flex; margin-top: 14px; }
 .form-actions .button { flex: 1 1 auto; }
@@ -240,15 +284,7 @@
 .translate-info small { display: block; margin-top: 3px; color: var(--muted); font-size: 10.5px; word-break: break-all; }
 .translate-card .button { flex: 0 0 auto; margin-left: 10px; min-height: 32px; padding: 5px 12px; font-size: 12px; }
 
-/* 作品编辑界面里的译文块 */
-.translate-block { margin: 4px 0 12px 0; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface-strong); }
-.translate-block .section-label { margin-bottom: 4px; }
-.translate-text { margin: 0; color: var(--ink); font-size: 12.5px; line-height: 1.5; word-break: break-word; }
-.translate-text.is-empty { color: var(--muted); font-size: 11.5px; }
-.translate-text.is-empty + .button-row { margin-top: 8px; }
-.translate-text.is-empty + .button-row .button { min-height: 32px; padding: 5px 12px; font-size: 12px; }
-
-/* 只读的"说明性"选择行(翻译模型的接口模式锁死 CVP,摆出来是为了对齐视觉,不给点) */
+/* 只读的"说明性"选择行(翻译模型的接口模式锁死 CHP,摆出来是为了对齐视觉,不给点) */
 .choice-row.static { opacity: .8; }
 .choice-row.static.is-selected { border-color: var(--line-strong); background: var(--surface-strong); }
 .choice-row.static.is-selected strong { color: var(--ink); }
@@ -365,24 +401,41 @@
   overflow: hidden; touch-action: none;
 }
 
-.render-preview-stage img {
-  display: block; width: auto; height: auto;
-  max-width: 100%; max-height: 100%;
-  object-fit: contain;
+/* 解码源:画布要一张已经解好码的图才能 drawImage。它自己不显示,也不占版面。 */
+.render-preview-stage img { display: none; }
+
+/* 显示面。**高度充满**是用户 2026-09-30 明确要的默认状态(「高度要默认充满窗口显示」):
+   高度吃满舞台,宽度按图片自己的比例算出来 —— 9:16 的竖图在更"方"的屏幕上因此横向溢出,
+   屏幕上看到的是"整高 + 左右裁掉一点",而不是"缩到两边留白"。
+   `flex: 0 0 auto` 与 `max-*-width/height: none` 都是必须的:舞台是 flex 容器,
+   不写这两条,浏览器会把画布按舞台宽度**缩回去**,高度充满就白写了。
+   缩放下限是 1(= 这里这个尺寸),见 render-preview.js 的 onMove。 */
+.render-preview-stage canvas {
+  display: block; width: auto; height: 100%;
+  flex: 0 0 auto; max-width: none; max-height: none;
   transform-origin: center center;
   will-change: transform;
   user-select: none; -webkit-user-drag: none;
 }
 
+/* 同上:[hidden] 必须显式写,上面的 display:block 会盖过浏览器默认的 display:none */
+.render-preview-stage canvas[hidden] { display: none; }
+
+/* 顶部那行现在**只在放大时**才说话(报一个百分比);100% 时是空的。
+   2026-09-30 用户要求「双击复位这句提示不要显示在顶部」——
+   空着的时候它仍然占着这一层,但字号一样、位置一样,视觉上就是"没有这一行"。 */
 .render-preview-hint {
   position: absolute; left: 0; right: 0;
-  bottom: calc(66px + var(--safe-bottom));
+  top: calc(10px + var(--safe-top));
   text-align: center; color: rgba(255,255,255,.6); font-size: 10.5px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.7);
   pointer-events: none;
 }
 
 /* 工具条浮在底部中间:三颗按钮,拇指够得到。毛玻璃 + 一道亮边,
-   与顶栏同一套材料 —— 它同样压在图片上。 */
+   与顶栏同一套材料 —— 它同样压在图片上。
+   黑纱与顶栏共用 --glass-veil(2026-09-30 用户要求「所有毛玻璃背景都变暗一些」):
+   它压的是成图本身,底色比场景更不可控,压暗之后白色图标更立得住。 */
 .render-preview-tools {
   position: absolute; z-index: 3;
   left: 50%; bottom: calc(12px + var(--safe-bottom));
@@ -390,7 +443,7 @@
   display: flex; align-items: center;
   padding: 5px 8px;
   border: 1px solid rgba(255,255,255,.5); border-radius: 16px;
-  background: rgba(255,255,255,.22);
+  background: linear-gradient(var(--glass-veil),var(--glass-veil)),rgba(255,255,255,.22);
   box-shadow: 0 6px 24px rgba(0,0,0,.38);
   -webkit-backdrop-filter: blur(18px) saturate(1.45);
   backdrop-filter: blur(18px) saturate(1.45);
@@ -398,10 +451,78 @@
 
 .render-preview-tools .icon-button { width: 40px; height: 40px; color: #fff; }
 .render-preview-tools .icon-button i { font-size: 16px; }
+/* 调色开着时那颗按钮要点得出来 —— 工具条里的"正在生效"记号 */
+.render-preview-tools .icon-button.is-on { background: rgba(255,255,255,.34); }
+
+/* ---------- 全屏看图的底部调色面板 ----------
+   2026-09-30 用户要求:「添加调色工具,参照 HamDraw 的全屏渲染图查看界面的底部调色面板,
+   调色参数也要保存到作品文档」。六个滑杆 + 重置 + 调色效果开关,由
+   components/render-adjust.js 的 panelHtml() 生成(行程与标签的唯一出处在那里)。
+   两列而不是三列:手机上三列会把「对比度」「梦幻辉光」这类三字标签折成两行,
+   而滑杆只剩一条缝可用。
+   它压着的就是成图本身,所以面板自己做一块**深色玻璃** —— 亮底面板会把图片的暗部
+   衬得发灰,用户调色时就分不清"是我调的"还是"面板晃的"。 */
+.render-preview-adjustments {
+  position: absolute; z-index: 3;
+  left: 12px; right: 12px;
+  bottom: calc(64px + var(--safe-bottom));
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-gap: 6px 12px;
+  padding: 10px 12px;
+  max-height: calc(100% - 150px); overflow-y: auto;
+  border: 1px solid rgba(255,255,255,.24); border-radius: 16px;
+  background: linear-gradient(var(--glass-veil),var(--glass-veil)),rgba(9,10,13,.52);
+  box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1);
+  backdrop-filter: blur(16px) saturate(1.1);
+  color: #fff;
+}
+.render-preview-adjustments[hidden] { display: none; }
+
+.color-adjust-item { display: block; min-width: 0; }
+.color-adjust-item > span { display: flex; align-items: baseline; }
+.color-adjust-item > span > span { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.color-adjust-item output { margin-left: auto; font-size: 10.5px; color: rgba(255,255,255,.72); font-variant-numeric: tabular-nums; }
+.color-adjust-item input[type="range"] { display: block; width: 100%; min-height: 26px; margin: 0; padding: 0; }
+
+/* 滑杆在深色玻璃上要自己画:默认那套轨道在深底上几乎看不见。
+   拉杆填成**面板自己的颜色**(而不是白),才不会让轨道从圆环中间透出来。 */
+.color-adjust-item input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,.42); }
+.color-adjust-item input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; margin-top: -6px;
+  border: 2px solid #fff; border-radius: 50%;
+  background: rgba(9,10,13,.55);
+}
+
+.render-preview-adjust-actions { grid-column: 1 / -1; display: flex; align-items: center; padding-top: 2px; }
+.render-preview-adjust-actions .button {
+  min-height: 32px; padding: 5px 13px; font-size: 11.5px;
+  border-color: rgba(255,255,255,.4); background: rgba(255,255,255,.14); color: #fff;
+}
+.render-preview-adjust-actions .button i { margin-right: 5px; font-size: 11px; }
+
+/* 调色效果开关推到最右:滑杆全回中性之后,它是唯一还能证明"调色到底有没有压上去"的东西 */
+.render-preview-switch { display: flex; align-items: center; margin-left: auto; cursor: pointer; font-size: 11px; }
+.render-preview-switch span { margin-right: 8px; white-space: nowrap; }
+.render-preview-switch input {
+  -webkit-appearance: none; appearance: none;
+  position: relative; flex: 0 0 38px; width: 38px; height: 22px; margin: 0;
+  border: 0; border-radius: 999px; background: rgba(255,255,255,.28);
+}
+.render-preview-switch input::after {
+  content: ""; position: absolute; left: 2px; top: 2px;
+  width: 18px; height: 18px; border-radius: 50%; background: #fff;
+}
+.render-preview-switch input:checked { background: #fff; }
+.render-preview-switch input:checked::after { left: 18px; background: #15171b; }
 
 /* ---------- 层叠关系 ----------
    确认框要盖过全屏看图(在全屏里点删除),提示条再盖过确认框。
-   三处都是"必须能看见"的东西,写在一起便于一眼看出谁在谁上面。 */
+   三处都是"必须能看见"的东西,写在一起便于一眼看出谁在谁上面。
+   选择框压在**表单那一层**(120)之上、确认框之下:它是从表单里点开的,
+   要盖住表单;而"删掉这张卡吗"这种确认永远该在最上面。 */
+.picker-layer { z-index: 320; }
 .confirm-layer { z-index: 340; }
 
 .toast-stack {

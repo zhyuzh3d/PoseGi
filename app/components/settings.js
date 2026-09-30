@@ -16,11 +16,11 @@
   var PROJECT_URL = "https://github.com/zhyuzh3d/PoseGi";
   /* 仓库说明里的一行来源:本项目的唯一规范远程 */
   var draft = null;
-  /* 编辑中的那份 CVP 连接。CVP 的地址/密码/请求头在配置里**只有一份**,住在
-     config.connection 上(store.shareCvp 负责把它分发到每一张 cvp 卡)。表单不能直接
+  /* 编辑中的那份 CHP 连接。CHP 的地址/密码/请求头在配置里**只有一份**,住在
+     config.connection 上(store.shareChp 负责把它分发到每一张 chp 卡)。表单不能直接
      写 app.config,所以编辑期间先挂在这里,保存时回写到 config.connection。
-     **不要再把它挂到 draft 身上** —— 那样 saveModel 很容易忘了回写,而 shareCvp
-     紧接着就会拿旧的空 connection 把所有 cvp 卡的地址覆盖成空,
+     **不要再把它挂到 draft 身上** —— 那样 saveModel 很容易忘了回写,而 shareChp
+     紧接着就会拿旧的空 connection 把所有 chp 卡的地址覆盖成空,
      表现就是"填好地址一保存又变空"(2026-09-26 修掉的就是这个)。 */
   var draftConnection = null;
   /* 这张表单是从哪儿来的:"models" = 从模型列表点进来的,关掉要回列表。
@@ -57,24 +57,54 @@
     });
   }
 
-  /* 通用下拉。外面那层 .select-wrap 只为了画右下角那个三角 —— select 自己没法上
-     伪元素,而背景图里的颜色又吃不到主题变量。entries 形如 [[value, label], …]。 */
-  function selectRow(name, entries, current) {
-    return '<span class="select-wrap"><select name="' + esc(name) + '" class="select-input">' +
-      entries.map(function (entry) {
-        return '<option value="' + esc(entry[0]) + '"' + (entry[0] === current ? " selected" : "") + ">" +
-          esc(entry[1]) + "</option>";
-      }).join("") + "</select></span>";
+  /* 通用选择行。原来是原生 <select>(2026-09-26 做的下拉),2026-09-30 用户要求
+     界面上不出现系统控件 —— 外观能自己画,但**弹出来的那一列选项**是系统配色的浅底列表,
+     在这个深色玻璃界面上是另一套东西。现在它只是一行只读按钮,点开由
+     app/components/ui.js 的 choose() 弹一层自绘列表(见 index.html 的 #picker-layer)。
+   
+     值仍然住在 [name] 这个 hidden input 上 —— readForm 与各处的 onchange 一行都不用改;
+     选项表随 DOM 走(data-picker-options),不需要在模块里再养一份会与界面失去同步的副本。
+     entries 形如 [[value, label], …],label 同时用作弹层标题(与外面那一行标签同一个词)。 */
+  function pickerRow(name, label, entries, current, hint) {
+    var picked = null;
+    (entries || []).forEach(function (entry) {
+      if (picked === null && String(entry[0]) === String(current)) picked = entry;
+    });
+    if (!picked) picked = (entries || [])[0] || ["", ""];
+    return '<label class="field"><span>' + label + "</span>" +
+      '<span class="picker-field"><input type="hidden" name="' + esc(name) + '" value="' + esc(picked[0]) + '">' +
+      '<button type="button" class="picker-button" data-picker="' + esc(name) +
+      '" data-picker-title="' + esc(label) + '" data-picker-options="' + esc(JSON.stringify(entries || [])) + '">' +
+      '<span data-picker-label>' + esc(picked[1]) + "</span>" +
+      '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button></span>' + (hint || "") + "</label>";
   }
 
-  /* 接口模式:原生下拉(2026-09-26 用户要求「改下拉选择」)。
-     它原来是四个 .choice-row 按钮,每个带一段说明,竖着占掉半屏;而"选哪一个"
-     本身是件一眼就能看完的事,下拉更合适。说明文字改成只显示当前选中那一项的,
-     放在下拉下面一行 —— 四个协议各说一段话,排在一起反而没人读。 */
-  function protocolSelect(current) {
-    return selectRow("protocol", app.services.providers.protocols.map(function (item) {
-      return [item.id, item.name];
-    }), current);
+  /* 把页面上的选择行接到弹层上。选完写回 hidden input,并**照旧调 onchange** ——
+     "换了接口模式就重建表单"这类分支都挂在 onchange 上(见 renderModelForm / openTranslateForm),
+     这里自己另发一个 change 事件,与它们的写法就不是同一件事了。 */
+  function bindPickers(root) {
+    Array.prototype.forEach.call(root.querySelectorAll("[data-picker]"), function (button) {
+      var input = root.querySelector('[name="' + button.dataset.picker + '"]');
+      if (!input) return;
+      var entries = [];
+      try { entries = JSON.parse(button.dataset.pickerOptions || "[]"); } catch (error) { entries = []; }
+      button.onclick = function () {
+        ui().choose({ title: button.dataset.pickerTitle || "", items: entries, current: input.value }).then(function (value) {
+          if (value === null || value === undefined) return;
+          input.value = String(value);
+          var label = button.querySelector("[data-picker-label]");
+          var picked = entries.filter(function (entry) { return String(entry[0]) === input.value; })[0];
+          if (label && picked) label.textContent = picked[1];
+          if (typeof input.onchange === "function") input.onchange();
+        });
+      };
+    });
+  }
+
+  /* 接口模式:两个协议清单(模型卡 / 翻译卡)共用同一份选项构造 ——
+     它们问的是 app.services 里那两张表,只有显示名与 id 的取法一样。 */
+  function protocolEntries() {
+    return app.services.providers.protocols.map(function (item) { return [item.id, item.name]; });
   }
 
   function protocolDescription(id) {
@@ -92,86 +122,134 @@
     editingId = String(id || "");
     formBack = String(back || "");
     var source = editingId ? app.services.providers.byId(editingId) : null;
-    draft = source ? app.utils.copy(source) : app.services.providers.preset("cvp", "quick");
+    draft = source ? app.utils.copy(source) : app.services.providers.preset("chp", "fast");
     if (!source) draft.name = "";
     /* 每次打开都重取一份连接,上一次编辑留下的值不能漏到这一次 */
     draftConnection = null;
     renderModelForm();
   }
 
-  /* 画幅固定的任务(快速只有 512、渲染只有 1024)不摆一条拖不动的滑杆,
-     直接把数值写出来;隐藏的 input 还在,readForm 照旧读得到这一个字段。 */
+  /* 画幅固定的任务不摆一条拖不动的滑杆,直接把数值写出来;隐藏的 input 还在,
+     readForm 照旧读得到这一个字段。 */
   function fixedField(name, label, value, suffix, hint) {
     return '<label class="field"><span>' + label + " <strong>" + value + (suffix || "") + "</strong></span>" +
       (hint ? '<em class="range-hint">' + hint + "</em>" : "") +
       '<input type="hidden" name="' + name + '" value="' + value + '"></label>';
   }
 
-  /* 任务三选一。选项与说明都从 app.defaults.cvpTasks 派生,加任务只改那一份表。 */
-  function cvpTaskChips(current) {
+  /* 宽高比锁定那一行:比例不是可选项,所以只印不给控件(唯一出处 app.defaults.ratio)。 */
+  function ratioField() {
+    return '<label class="field"><span>' + t("宽高比", "Aspect ratio") + " <strong>" + esc(app.defaults.ratio) +
+      "</strong></span><em class=\"range-hint\">" +
+      t("竖屏构图,锁定不可改", "Portrait composition, locked") + "</em></label>";
+  }
+
+  /* 非 CHP 接口的分辨率:一份固定的 9:16 清单(唯一出处 app.defaults.resolutions)。
+     清单外的值进不来,选了也不发 —— 各家接口对"哪几张能收"的口径都不一样,
+     与其让用户填一个必被拒的数,不如只列常见的那几档。 */
+  function resolutionField() {
     var internals = app.services.providers.internals;
-    return Object.keys(app.defaults.cvpTasks).map(function (id) {
-      return '<button type="button" class="chip' + (id === internals.cvpTask({ task: current }) ? " is-on" : "") +
+    var current = internals.resolution(draft);
+    var entries = (app.defaults.resolutions || []).map(function (value) { return [value, value]; });
+    return pickerRow("resolution", t("生成分辨率", "Output resolution"), entries, current,
+      '<em class="range-hint">' + t("大模型常见的 9:16 竖幅档", "Common 9:16 portrait sizes") + "</em>");
+  }
+
+  /* CHP 卡的画幅 —— 「比例锁死 + 分辨率下拉 + 步数只印」。
+   *
+   * 两条都不是用户能随便填的东西:比例是本应用锁的 9:16;分辨率必须**逐项命中插件公布
+   * 的帧表**(表外的值服务端一律 `400 unsupported_size`),所以这里是下拉,选项就是插件
+   * 为**这个场景**公布的 9:16 档 —— 选不到的东西不列出来。
+   *
+   * 还没点过「测试连接」时没有表可挑(chpResolutions 返回空),退到出厂那一条并把
+   * 说明改成"点一次会读到插件当前的帧表";这个场景在插件上压根没有 9:16 档时
+   * 下拉里只有一句说明 —— 那时生图会当场报出同一件事(见 providers 的 chpGenerate)。
+   *
+   * 步数不给控件、也不进下拉:它是插件内置工作流的一部分(按枚举判,越界报
+   * unsupported_steps,而那张枚举表并不在协议里公布)。hidden 输入不能省,
+   * readForm 要读得到它。 */
+  function chpFrameField() {
+    var providers = app.services.providers;
+    var internals = providers.internals;
+    var list = internals.chpResolutions(internals.chpTask({ task: draft.task }));
+    var current = providers.resolutionText(draft);
+    var entries = list.length ? list.map(function (value) { return [value, value]; })
+      : [[current, current || t("插件没有为这个场景公布 9:16 画幅", "The plugin publishes no 9:16 frame for this category")]];
+    return pickerRow("resolution", t("分辨率与步数", "Resolution and steps"), entries, current,
+      '<em class="range-hint">' + t(
+        list.length ? "由插件当前的场景定义决定;步数 " + draft.steps : "点「测试连接」会读取插件当前的帧表",
+        list.length ? "Decided by the plugin's current category definition; steps " + draft.steps : "Test the connection to read the plugin's current frames") +
+      "</em>") +
+      '<input type="hidden" name="steps" value="' + draft.steps + '">';
+  }
+
+  /* 任务二选一(插件多播报几个就几个)。
+   *
+   * **清单与名字都来自插件**,不是写在前端的一张表:`chp/2` 的 `rules[]` 就是这份清单
+   * 本身(见 providers 的 chpCategories),按钮上是插件自己给的 `label`。
+   * 没点过「测试连接」时读不到文档,那时才退到出厂表 —— 这也是为什么这个函数不自己
+   * 拼清单:凡是"插件说了算"的东西都只有一个出处。
+   * 卡上那一栏与插件的 `category` 是同一套词,不再有两套词要换算。 */
+  function chpTaskChips(current) {
+    var internals = app.services.providers.internals;
+    return internals.chpCategories().map(function (id) {
+      return '<button type="button" class="chip' + (id === internals.chpTask({ task: current }) ? " is-on" : "") +
         '" data-task="' + esc(id) + '">' + esc(internals.taskName(id)) + "</button>";
     }).join("");
   }
 
-  function cvpTaskHelp(task) {
-    if (task === "upscale") return t("把手上的 1024 渲染图放大补细节,构图基本不动。", "Upscales the 1024 render and adds detail; the composition stays put.");
-    if (task === "qwen") return t("Qwen-Image 2.1 按参考图重新作画,是这里最重、也最像成片的一档;单张几十秒。", "Qwen-Image 2.1 repaints from the reference. The heaviest task here and the one that looks most like a finished photo; tens of seconds per image.");
-    return t("最快的草图路线,512 画幅,一两秒出图,适合先看构图。", "The fastest sketch path: 512 px, a second or two, good for checking the composition.");
+  /* 任务按钮下面那句话,同样是插件优先(见 providers 的 taskDescription)。 */
+  function chpTaskHelp(task) {
+    return app.services.providers.internals.taskDescription(task);
   }
 
   function renderModelForm() {
-    var cvp = draft.protocol === "cvp";
+    var chp = draft.protocol === "chp";
     var limits = app.defaults.limits;
-    var html = '<div class="field"><span>' + t("接口模式", "API format") + "</span>" + protocolSelect(draft.protocol) +
-      '<p class="field-help" data-protocol-help>' + esc(protocolDescription(draft.protocol)) + "</p></div>";
+    var html = pickerRow("protocol", t("接口模式", "API format"), protocolEntries(), draft.protocol,
+      '<p class="field-help" data-protocol-help>' + esc(protocolDescription(draft.protocol)) + "</p>");
     html += field("name", t("模型卡名称", "Card name"), draft.name, "text", t("例如:家里的 ComfyUI", "For example: ComfyUI at home"));
-    if (cvp) {
+    if (chp) {
       html += '<div class="field"><span>' + t("任务", "Task") + '</span><div class="chip-row">' +
-        cvpTaskChips(draft.task) + "</div>" +
-        '<p class="field-help">' + cvpTaskHelp(draft.task) + "</p></div>";
+        chpTaskChips(draft.task) + "</div>" +
+        '<p class="field-help">' + chpTaskHelp(draft.task) + "</p></div>";
     }
-    /* CVP 的地址只有一份(shared()),它为空就说明这台设备还没记录过 ——
+    /* CHP 的地址只有一份(shared()),它为空就说明这台设备还没记录过 ——
        这时预填那条样例地址,用户只改 IP 就行;已经记录过就原样显示,绝不覆盖
        (2026-09-26 用户要求)。 */
     html += field("endpoint", t("服务器地址", "Server address"),
-      cvp ? (shared().endpoint || app.defaults.cvpEndpoint) : draft.endpoint, "url",
-      cvp ? app.defaults.cvpEndpoint : "https://…");
-    html += '<label class="field"><span>' + (cvp ? t("访问密码", "Access password") : "API Key") + "</span>" +
+      chp ? (shared().endpoint || app.defaults.chpEndpoint) : draft.endpoint, "url",
+      chp ? app.defaults.chpEndpoint : "https://…");
+    html += '<label class="field"><span>' + (chp ? t("访问密码", "Access password") : "API Key") + "</span>" +
       '<div class="secret-input"><input name="apiKey" type="password" autocomplete="off" value="' +
-      esc(cvp ? shared().apiKey : draft.apiKey) + '" placeholder="' +
-      esc(cvp ? t("在 ComfyUI 的 HamDraw 配置节点里设置;留空表示插件没有启用密码", "Set it in the ComfyUI HamDraw config node; leave empty when the plugin has no password") : t("免鉴权的本地服务可留空", "Optional for local services")) +
+      esc(chp ? shared().apiKey : draft.apiKey) + '" placeholder="' +
+      esc(chp ? t("在 ComfyUI 的 CHP 插件配置节点里设置;留空表示插件没有启用密码", "Set it in the ComfyUI CHP plugin's config node; leave empty when the plugin has no password") : t("免鉴权的本地服务可留空", "Optional for local services")) +
       '"><button type="button" data-toggle-secret aria-label="' + t("显示密钥", "Show key") + '"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
       '<button type="button" data-paste-secret aria-label="' + t("粘贴密钥", "Paste key") + '"><i class="fa-regular fa-paste" aria-hidden="true"></i></button></div></label>';
-    if (cvp) {
-      html += '<p class="field-help">' + t("所有 CVP 模型卡共用这一套地址与密码:在这里改,几张卡一起改。", "Every CVP card shares this one address and password: change it here and all of them change together.") + "</p>";
+    if (chp) {
+      html += '<p class="field-help">' + t("所有 CHP 模型卡共用这一套地址与密码:在这里改,几张卡一起改。", "Every CHP card shares this one address and password: change it here and all of them change together.") + "</p>";
     } else {
       html += field("model", t("模型 ID", "Model ID"), draft.model, "text", t("填写服务提供的模型名称", "Model name from your provider"));
     }
-    /* CVP 的画幅档位由任务的 capabilities 决定 —— quick 只有 512、渲染只有 1024、
-       Qwen 是 512–1024 每 64 一档,所以滑杆的范围随任务变(见 providers.cvpSize)。 */
-    var sizeSpec = app.services.providers.internals.cvpSpec(draft.task).size;
-    var sizeLow = cvp ? Math.max(sizeSpec[0], limits.size[0]) : limits.size[0];
-    var sizeHigh = cvp ? Math.min(sizeSpec[1], limits.size[1]) : limits.size[1];
-    if (cvp && sizeLow === sizeHigh) {
-      html += fixedField("size", t("生成分辨率", "Output size"), sizeLow, "px",
-        t("这个任务只有这一档画幅", "This task has a single canvas size"));
+    /* 画幅:比例锁死(两种协议一样),分辨率一律**下拉选择** —— CHP 的选项来自插件
+       为这个场景公布的 9:16 帧表(见 chpFrameField),别的协议来自本应用那份常见档
+       清单(见 resolutionField)。以前那条"正方边长滑杆"随宽高比锁定一起没了。 */
+    html += ratioField();
+    if (chp) {
+      html += chpFrameField();
     } else {
-      html += rangeField("size", t("生成分辨率", "Output size"), draft.size, sizeLow, sizeHigh, cvp ? sizeSpec[2] : 64, "px",
-        t("正方画幅,边长的像素数", "Square canvas, side length in pixels"));
+      html += resolutionField();
     }
     html += rangeField("refStrength", t("参考图强度", "Reference strength"), draft.refStrength, limits.refStrength[0], limits.refStrength[1], 10, "",
-      draft.task === "qwen"
+      draft.task === "render"
         ? t("100 为中性:参考图原样交给模型;调低会把它逐步柔化,让提示词接手", "100 is neutral: the model sees the reference as it is. Lower softens it so the prompt takes over")
         : t("100 为中性:调高更贴渲染图,调低给模型更多自由", "100 is neutral: higher sticks closer to the render, lower frees the model"));
     html += '<details class="advanced"><summary>' + t("高级参数", "Advanced") + "</summary>" +
-      rangeField("steps", t("步数", "Steps"), draft.steps, limits.steps[0], limits.steps[1], 1, "", "") +
+      (chp ? "" : rangeField("steps", t("步数", "Steps"), draft.steps, limits.steps[0], limits.steps[1], 1, "", "")) +
       field("timeoutMs", t("超时(毫秒)", "Timeout (ms)"), draft.timeoutMs, "number") +
       '<label class="field"><span>' + t("自定义请求头 JSON", "Custom headers JSON") +
       '</span><textarea name="customHeaders" rows="2" placeholder="{&quot;X-API-Key&quot;:&quot;your-key&quot;}">' +
-      esc(cvp ? shared().customHeaders : draft.customHeaders) + "</textarea></label></details>";
+      esc(chp ? shared().customHeaders : draft.customHeaders) + "</textarea></label></details>";
     html += '<div class="form-actions"><button class="button button-secondary" type="button" data-test><i class="fa-solid fa-plug" aria-hidden="true"></i>' +
       t("测试连接", "Test connection") + '</button><button class="button button-primary" type="button" data-save>' +
       t("保存", "Save") + "</button></div>";
@@ -188,7 +266,8 @@
       onClose: formBack === "models" ? function () { openModels(); } : null,
       onMount: function (content) {
         bindRanges(content);
-        /* 换接口模式要重建表单(不同协议的字段本来就不一样:cvp 有任务与共用连接,
+        bindPickers(content);
+        /* 换接口模式要重建表单(不同协议的字段本来就不一样:chp 有任务与共用连接,
            别的协议有模型 ID),但**先把已经填好的东西收进 draft** ——
            否则用户填完地址再动一下模式,地址就白填了。 */
         var protocol = content.querySelector('[name="protocol"]');
@@ -226,7 +305,7 @@
     return root;
   }
 
-  /* 编辑期间那份 CVP 连接:第一次问它时按 app.config.connection 取一份副本,
+  /* 编辑期间那份 CHP 连接:第一次问它时按 app.config.connection 取一份副本,
      之后表单里的改动都落在这一份上,保存时由 saveModel 回写。 */
   function shared() {
     if (!draftConnection) {
@@ -239,9 +318,9 @@
   function bindSecrets(content, getModel) {
     var model = getModel();
     var input = content.querySelector('[name="apiKey"]');
-    var cvp = model && model.protocol === "cvp";
+    var chp = model && model.protocol === "chp";
     function write(value) {
-      if (cvp) shared().apiKey = value;
+      if (chp) shared().apiKey = value;
       else draft.apiKey = value;
     }
     var toggle = content.querySelector("[data-toggle-secret]");
@@ -260,13 +339,13 @@
 
   /* 把表单读回 draft。范围与数字一律转成数,空值回落默认 —— 存进去的必须是可算的。 */
   function readForm(content) {
-    var cvp = draft.protocol === "cvp";
+    var chp = draft.protocol === "chp";
     var name = content.querySelector('[name="name"]');
     if (name) draft.name = name.value.trim();
     var endpoint = content.querySelector('[name="endpoint"]').value.trim();
     var apiKey = content.querySelector('[name="apiKey"]').value;
     var headers = content.querySelector('[name="customHeaders"]').value;
-    if (cvp) {
+    if (chp) {
       shared().endpoint = endpoint;
       shared().apiKey = apiKey;
       shared().customHeaders = headers;
@@ -276,7 +355,8 @@
     }
     var model = content.querySelector('[name="model"]');
     if (model) draft.model = model.value.trim();
-    draft.size = Number(content.querySelector('[name="size"]').value);
+    var resolution = content.querySelector('[name="resolution"]');
+    if (resolution) draft.resolution = String(resolution.value || "");
     draft.refStrength = Number(content.querySelector('[name="refStrength"]').value);
     draft.steps = Number(content.querySelector('[name="steps"]').value);
     draft.timeoutMs = Number(content.querySelector('[name="timeoutMs"]').value);
@@ -284,16 +364,49 @@
   }
 
   /* 插件自报的信息落到这张卡上。
-     目前只做一件事 —— 把"要不要先译英"从插件那里读出来:同一个地址下不同工作流
+     目前只做一件事 —— 把"要不要先译英"从插件那里读出来:同一个地址下不同场景
      吃不吃中文是不一样的,让用户自己猜并不合理(2026-09-26 用户要求)。
-     老插件没有这个字段,`englishOnly` 是 null,那就原样保留用户的手工设置。 */
+     插件没声明这一项时 `englishOnly` 是 null,那就原样保留用户的手工设置。 */
   function applyDiscovery(result) {
+    /* 译英这块机制不在(英文界面)时一个字段都不动:那时候设这个开关没有意义,
+       而写下它会在用户切回中文界面之后突然生效。
+       ⚠️ 这里**只判界面语言,不许改成 relevant()**:那个判据里带着"这张卡现在标没标
+       需要英文",而本函数干的正是**去改这个标记** —— 拿被改的东西当条件,卡一旦标错
+       就永远纠正不回来(点一百次「测试连接」也没用)。 */
+    if (!app.services.translate.wanted()) return "";
+    /* CHP 卡一律不需要客户端翻译(理由见 services/translate.js 的 needed:客户端译英的
+       后端就是同一个插件,而它自己会译)。写下去只会弹一句"已自动开启翻译为英文",
+       而实际根本不会翻 —— 那种提示比不提示更坏。 */
+    if (String(draft.protocol || "chp") === "chp") return "";
     if (typeof result.englishOnly !== "boolean") return "";
     if (draft.needsEnglish === result.englishOnly) return "";
     draft.needsEnglish = result.englishOnly;
     return result.englishOnly
-      ? t("这个任务的编码器只认英文,已自动开启「翻译为英文」", "This task reads English only, so translate-to-English was switched on")
-      : t("这个任务的编码器能读中文,已自动关掉「翻译为英文」", "This task reads Chinese, so translate-to-English was switched off");
+      ? t("这个场景的编码器只认英文,已自动开启「翻译为英文」", "This category reads English only, so translate-to-English was switched on")
+      : t("这个场景的编码器能读中文,已自动关掉「翻译为英文」", "This category reads Chinese, so translate-to-English was switched off");
+  }
+
+  /* 测试连接成功之后那一行:场景、插件版本、它会用哪几件模型文件、这次会用什么画幅。
+     四件事全来自插件刚发出来的那份文档 —— 一次公开调用就能把"地址通不通、密码对不对、
+     场景在不在、模型装好没有"一起回答,所以这一行报的是**读到的**而不是本应用猜的。 */
+  function testSummary(result) {
+    var notes = [t("连接成功", "Connected")];
+    if (result.version) notes.push(t("插件", "plugin") + " " + result.version);
+    /* 一条能力只有一件文件时,它的名字**就是**那个文件名,和文件清单一模一样 ——
+       真机上 fast 卡这么印过:"DreamShaper8_LCM.safetensors · checkpoint
+       DreamShaper8_LCM.safetensors",同一件事说两遍看起来像两条不同的信息。
+       名字已经出现在清单里就只印清单;三件套那一路(能力名 qwen2.1、清单里是
+       unet/clip/vae 三个文件名)两者不重合,两条都留着。 */
+    if (result.model && !(result.files && result.files.indexOf(result.model) >= 0)) notes.push(result.model);
+    if (result.files) notes.push(result.files);
+    if (result.resolution) notes.push(result.resolution + (result.resolutions && result.resolutions.length > 1 ? "(" + result.resolutions.join(" / ") + ")" : ""));
+    /* 帧表里没有这个场景的 9:16 档时**必须说出来**。那不是"少印一行画幅":本应用锁竖幅,
+       而插件的 `stretched_reference` 会把比例对不上的参考图当场退回来 —— 于是这张卡
+       根本发不出图(生图时会在 chpGenerate 里被拦下,说同一件事)。
+       只印"连接成功",用户会以为测试通过就等于能用。 */
+    else notes.push(t("这个场景还没有 " + app.defaults.ratio + " 画幅,现在还出不了图",
+      "This category has no " + app.defaults.ratio + " frame yet, so it cannot render"));
+    return notes.join(" · ");
   }
 
   async function testModel(content) {
@@ -304,15 +417,14 @@
     try {
       var result = await app.services.providers.test(draft);
       if (result && result.task) {
-        var notes = [t("连接成功", "Connected")];
-        if (result.version) notes.push(t("插件", "plugin") + " " + result.version);
-        notes.push(t("当前模型", "model") + " " + result.model);
         var applied = applyDiscovery(result);
-        if (applied) { notes.push(applied); ui().toast(applied); }
-        status.textContent = notes.join(" · ") + "。";
-      } else {
-        status.textContent = t("连接成功;出图能力取决于所选模型。", "Connected. Image support depends on the selected model.");
+        /* 自动拨动的那个开关要说一句 —— 它改的是生图前会不会多一次翻译,只写在状态行
+           里用户容易看不到(那时他在看下面的按钮)。状态行照旧报读数。 */
+        if (applied) ui().toast(applied);
+        status.textContent = testSummary(result) + "。";
+        return;
       }
+      status.textContent = t("连接成功;出图能力取决于所选模型。", "Connected. Image support depends on the selected model.");
     } catch (error) {
       status.textContent = t("连接失败:", "Connection failed: ") + app.utils.cleanError(error);
       status.classList.add("is-error");
@@ -325,11 +437,11 @@
     readForm(content);
     app.services.providers.validate(draft);
     var config = app.utils.copy(app.config);
-    /* CVP 的地址/密码/请求头**唯一出处是 config.connection**(store.shareCvp 会把它分发到
-       每一张 cvp 卡)。表单填的只能落在 shared() 上,所以这里必须显式回写 ——
-       少了这一步,shareCvp 紧接着就拿旧的空 connection 把所有 cvp 卡的地址覆盖成空,
+    /* CHP 的地址/密码/请求头**唯一出处是 config.connection**(store.shareChp 会把它分发到
+       每一张 chp 卡)。表单填的只能落在 shared() 上,所以这里必须显式回写 ——
+       少了这一步,shareChp 紧接着就拿旧的空 connection 把所有 chp 卡的地址覆盖成空,
        表现就是"填好地址一保存又变空"。 */
-    if (draft.protocol === "cvp") config.connection = app.utils.copy(shared());
+    if (draft.protocol === "chp") config.connection = app.utils.copy(shared());
     var position = -1;
     config.models.forEach(function (item, order) { if (item.id === draft.id) position = order; });
     if (position >= 0) config.models[position] = app.utils.copy(draft);
@@ -349,18 +461,22 @@
       '<button class="model-pick" data-activate="' + esc(item.id) + '" type="button">' +
       '<span class="model-line"><strong>' + esc(item.name) + "</strong>" +
       (isActive ? '<span class="model-active">' + t("使用中", "In use") + "</span>" : "") + "</span>" +
-      '<span class="model-sub">' + esc(protocol ? protocol.name : item.protocol) + " · " + item.size + "px · " +
+      '<span class="model-sub">' + esc(protocol ? protocol.name : item.protocol) + " · " +
+      esc(app.services.providers.resolutionText(item)) + " · " +
       t("强度", "Strength") + " " + item.refStrength + "</span>" +
       '<span class="model-sub">' + esc(item.endpoint || t("还没有填地址", "No address yet")) + "</span></button>" +
       /* 译英开关(2026-09-25 用户要求)。它挂在**卡**上而不是全局:同一个地址下
          不同工作流吃不吃中文是不一样的,全局开关只能二选一。
          2026-09-26 起这个值由插件自报(卡上点「测试连接」时会自动写一次)——
-         开关留着是为了给用户一个手工覆盖的入口,不再是必须自己猜的项。 */
-      '<div class="switch-row"><span class="switch-text"><strong>' + t("需要翻译为英文", "Translate to English") +
+         开关留着是为了给用户一个手工覆盖的入口,不再是必须自己猜的项。
+         2026-09-30:整块只在**中文界面 + 当前这张卡标了需要英文**时出现
+         (见 wantsTranslate 与 translate.relevant)—— 英文界面的人本来就在写英文,
+         卡能吃中文时这个开关也没有意义,两种情况都只会让人困惑。 */
+      (wantsTranslate() ? '<div class="switch-row"><span class="switch-text"><strong>' + t("需要翻译为英文", "Translate to English") +
       "</strong><small>" + t("用这张卡生图时,中文角色描述会先译成英文。点「测试连接」会按插件自报的结果自动设置,也可以在这里手工改",
         "When generating with this card, a Chinese description is translated first. Test connection sets this from what the plugin reports; you can still change it here") +
       '</small></span><label class="switch"><input type="checkbox" data-needs-english="' + esc(item.id) + '"' +
-      (item.needsEnglish === true ? " checked" : "") + '><span class="switch-track"></span><span class="switch-thumb"></span></label></div>' +
+      (item.needsEnglish === true ? " checked" : "") + '><span class="switch-track"></span><span class="switch-thumb"></span></label></div>' : "") +
       '<div class="model-actions"><button class="button button-secondary" data-edit="' + esc(item.id) + '" type="button">' +
       t("编辑", "Edit") + '</button><button class="icon-button" data-remove="' + esc(item.id) + '" type="button" aria-label="' +
       t("删除模型卡", "Delete card") + '"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button></div></article>';
@@ -447,20 +563,26 @@
   }
 
   /* 只有中文界面才需要"中英翻译"这一项 —— 英文界面的人本来就在写英文,
-     给他一个中文提示词译成英文的模型,除了困惑没有别的用处。 */
-  function wantsTranslate() { return app.i18n.language() === "zh"; }
+     给他一个中文提示词译成英文的模型,除了困惑没有别的用处。
+     判据本身**不在这里**:它是一件行为(译英机制现在用不用得上),出处是
+     `services/translate.js` 的 `relevant()`(界面中文 + 当前这张卡标了需要英文),
+     界面只借用同一个答案,免得两处各判一次哪天判岔了 ——
+     界面上藏了、请求里还偷偷翻一次,那才是最难查的错。
+     2026-09-30 用户要求「不需要英文翻译的模型 ⇒ 去掉所有翻译相关的机制和UI」:
+     卡不吃英文时,把翻译服务配在这里也没有用处,露出来只会让人以为必须配。 */
+  function wantsTranslate() { return app.services.translate.relevant(); }
 
   function translateProtocol() {
     var table = app.services.translate.protocols || {};
-    var id = String((app.config.translate || {}).protocol || "cvp");
-    return Object.prototype.hasOwnProperty.call(table, id) ? id : "cvp";
+    var id = String((app.config.translate || {}).protocol || "chp");
+    return Object.prototype.hasOwnProperty.call(table, id) ? id : "chp";
   }
 
-  /* 只有 CVP 才借生图那套地址 —— 那是插件的地址。别的协议借不来,必须自己填。 */
+  /* 只有 CHP 才借生图那套地址 —— 那是插件的地址。别的协议借不来,必须自己填。 */
   function translateEndpoint() {
     var translate = app.config.translate || {};
     if (String(translate.endpoint || "")) return String(translate.endpoint);
-    return translateProtocol() === "cvp" ? String(app.config.connection.endpoint || "") : "";
+    return translateProtocol() === "chp" ? String(app.config.connection.endpoint || "") : "";
   }
 
   function translateRowHtml() {
@@ -470,7 +592,7 @@
     var endpoint = translateEndpoint();
     var state = !endpoint ? t("还没有添加", "Not added yet")
       : (translate.enabled ? t("已启用", "Enabled") : t("已填写但没有测试通过", "Filled in but never passed the test"));
-    var detail = translateProtocol() === "cvp"
+    var detail = translateProtocol() === "chp"
       ? (endpoint || t("用插件自带的大模型把中文描述译成英文", "Uses the plugin's own model to turn Chinese into English"))
       : t(protocol.zh || "", protocol.en || "") + " · " + (String(translate.model || "") || t("未填模型", "no model yet"));
     return '<div class="section-label">' + t("中英翻译", "Chinese to English") + "</div>" +
@@ -516,13 +638,16 @@
   }
 
   /* ---------- 添加中英文翻译模型 ----------
-   * 接口格式支持 CVP 插件与 DeepSeek / Qwen / OpenAI / Claude / Gemini
+   * 接口格式支持 CHP 插件与 DeepSeek / Qwen / OpenAI / Claude / Gemini
    * (2026-09-26 用户要求)。前三家都是 OpenAI 兼容的 /chat/completions,所以归成一项,
    * 下拉里点名它们 —— 让用户先选"OpenAI 兼容"再选一次"DeepSeek"是多余的一步。
    * 保存与测试合成一步:用户的话是「添加成功并测试成功之后」才生效,
    * 那就别给他一个"存了但其实不能用"的中间状态。 */
 
   function openTranslateForm() {
+    /* 英文界面下表单连开都不开:入口按钮那时已经不出现(见 openPreferences),
+       但界面上"点不到"和"打不开"是两回事 —— 后者才是这道门的实处。 */
+    if (!wantsTranslate()) return;
     var translate = app.config.translate || {};
     var table = app.services.translate.protocols || {};
     var protocol = translateProtocol();
@@ -530,9 +655,8 @@
     var apiKey = String(translate.apiKey || (!translate.endpoint ? app.config.connection.apiKey || "" : ""));
     var headers = String(translate.customHeaders || (!translate.endpoint ? app.config.connection.customHeaders || "" : ""));
     var entries = Object.keys(table).map(function (id) { return [id, t(table[id].zh, table[id].en)]; });
-    var html = '<div class="field"><span>' + t("接口模式", "API format") + "</span>" +
-      selectRow("protocol", entries, protocol) +
-      '<p class="field-help" data-translate-help></p></div>' +
+    var html = pickerRow("protocol", t("接口模式", "API format"), entries, protocol,
+      '<p class="field-help" data-translate-help></p>') +
       field("endpoint", t("服务器地址", "Server address"), endpoint, "url", "") +
       '<label class="field"><span>' + t("访问密码 / API Key", "Access password / API key") + "</span>" +
       '<div class="secret-input"><input name="apiKey" type="password" autocomplete="off" value="' + esc(apiKey) + '" placeholder="' +
@@ -557,6 +681,7 @@
       title: t("添加中英文翻译模型", "Add translation model"),
       bodyHtml: html,
       onMount: function (content) {
+        bindPickers(content);
         var status = content.querySelector("[data-translate-status]");
         var secretInput = content.querySelector('[name="apiKey"]');
         var endpointInput = content.querySelector('[name="endpoint"]');
@@ -572,13 +697,13 @@
           if (help) help.textContent = t(item.zhHelp || "", item.enHelp || "");
           if (endpointInput) endpointInput.placeholder = item.endpoint || "";
           if (modelInput) modelInput.placeholder = item.model || "";
-          if (modelField) modelField.hidden = protocol === "cvp";
+          if (modelField) modelField.hidden = protocol === "chp";
         }
         paint();
 
         if (picker) picker.onchange = function () {
           var previous = (table[protocol] || {}).endpoint || "";
-          var next = Object.prototype.hasOwnProperty.call(table, picker.value) ? picker.value : "cvp";
+          var next = Object.prototype.hasOwnProperty.call(table, picker.value) ? picker.value : "chp";
           /* 地址还停在上一档的默认值(或空着)就跟着换掉;用户自己填过的不覆盖 */
           var current = endpointInput ? endpointInput.value.trim() : "";
           if (endpointInput && (!current || current === previous)) endpointInput.value = (table[next] || {}).endpoint || "";
@@ -614,7 +739,7 @@
             status.classList.add("is-error");
             return;
           }
-          if (candidate.protocol !== "cvp" && !candidate.model) {
+          if (candidate.protocol !== "chp" && !candidate.model) {
             status.textContent = t("请填写模型 ID", "Enter the model id");
             status.classList.add("is-error");
             return;
@@ -675,25 +800,26 @@
         helpLine(fa("fa-solid", "camera"), t("转视角", "Orbit the view"),
           t("在空白处拖动转视角,双指捏合放缩,双指拖动平移,双击空白让整个人回到画面正中。", "Drag the background to orbit, pinch to zoom, two-finger drag to pan, double-tap the background to bring the figure back to the centre.")),
         helpLine(fa("fa-solid", "screwdriver-wrench"), t("工具", "Tools"),
-          t("「工具」里三件事:搬运(拖着整人走,姿态不变)、左右镜像(左右姿势整体翻转)、相机归位。", "Tools holds three things: Move (drag the whole figure without changing the pose), Mirror (flip the pose left to right), and Reset view.")),
+          t("「工具」里两件事:左右镜像(左右姿势整体翻转)、相机归位。", "Tools holds two things: Mirror (flip the pose left to right) and Reset view.")),
         helpLine(fa("fa-solid", "palette"), t("渲染", "Render"),
           t("「渲染」是给模型看的检查层:无 / 正反黑白 / 正反红绿。开了之后正面与背面用不同颜色区分,方便确认朝向对不对。它只改变显示,不改变姿态,也不会进成图。", "Render is a check layer for the model: off, front-back grey, front-back red-green. It tints the two sides differently so you can confirm the facing. It only changes the display — never the pose, never the generated image."))
       ]) +
       helpSection(t("出图", "Generation"), [
         helpLine(fa("fa-solid", "wand-magic-sparkles"), t("生成", "Generate"),
-          t("先写一句画面描述,再点生成。PoseGi 会把当前姿态渲染成 1024 的参考图,连同描述与参考图强度一起交给模型。", "Write a description, then generate. PoseGi renders the current pose into a 1024 reference and hands it to the model together with the description and the reference strength.")),
+          t("先写一句画面描述,再点生成。PoseGi 会把当前姿态渲染成 9:16、高 1024 的参考图,连同描述与参考图强度一起交给模型。",
+            "Write a description, then generate. PoseGi renders the current pose into a 9:16 reference, 1024 high, and hands it to the model together with the description and the reference strength.")),
         helpLine(fa("fa-solid", "images"), t("历史成图", "History"),
-          t("生成弹窗里是当前作品最近 12 张成图,点一张可以全屏查看、放大拖动,并在那里直接删除。超过 12 张时最旧的会被顶掉。", "The generation sheet shows the last 12 images of this artwork. Tap one to view it fullscreen, zoom and pan, and delete it right there. Past 12, the oldest drops off.")),
+          t("生成弹窗里是当前作品最近 12 张成图。点右上角的叉就能删掉那一张(槽位跟着空出来),点图片本身可以全屏查看、放大拖动,也能在那里删。超过 12 张时最旧的会被顶掉。", "The generation sheet shows the last 12 images of this artwork. The cross in a thumbnail's top-right corner deletes just that one and frees its slot; tapping the image itself opens it fullscreen to zoom, pan and delete. Past 12, the oldest drops off.")),
         helpLine(fa("fa-solid", "ban"), t("取消", "Cancel"),
           t("生成过程中可以关掉弹窗,也可以点取消。取消只是不再等这一次的结果,服务端任务可能仍在跑。", "You can close the sheet or cancel while generating. Cancel stops waiting for this result; the server job may still be running."))
       ]) +
       helpSection(t("模型", "Models"), [
         helpLine(fa("fa-solid", "cubes"), t("接上自己的模型", "Connect a model"),
-          t("「添加模型」里选接口模式。推荐在本地 ComfyUI 装 HamDraw 插件(CVP):插件自带快速生图与渲染两套工作流,密码在插件的配置节点里设置。", "Pick an API format under Add model. Installing the HamDraw plugin (CVP) on a local ComfyUI is recommended: it ships the quick and render workflows, and its password lives in the plugin's config node.")),
-        helpLine(fa("fa-solid", "sliders"), t("分辨率与参考图强度", "Size and reference strength"),
-          t("每张卡有自己的生成分辨率(512–1024)与参考图强度(0–200,100 为中性)。强度调高更贴渲染图,调低给模型更多自由。", "Each card has its own output size (512–1024) and reference strength (0–200, 100 neutral). Higher sticks closer to the render; lower frees the model.")),
+          t("「添加模型」里选接口模式。推荐在本地 ComfyUI 装 CHP 插件(ComfyUI Haminn Protocol):插件自带快速生图、图像放大与高质量生图几套工作流,访问密码在插件的配置节点里设置。", "Pick an API format under Add model. Installing the CHP plugin (ComfyUI Haminn Protocol) on a local ComfyUI is recommended: it ships the quick, upscale and high-quality render workflows, and its password lives in the plugin's config node.")),
+        helpLine(fa("fa-solid", "sliders"), t("画幅与参考图强度", "Canvas and reference strength"),
+          t("CHP 卡的画幅与步数由插件的场景定义决定,界面上点「测试连接」就能读到插件当前的值;参考图强度(0–200,100 为中性)才是这一档的自由度:调高更贴渲染图,调低给模型更多自由。", "On a CHP card the canvas and step count come from the plugin's category definition — tap Test connection to read its current values. The reference strength (0–200, 100 neutral) is the free control: higher sticks closer to the render, lower frees the model.")),
         helpLine(fa("fa-solid", "circle-check"), t("切换与测试", "Switch and test"),
-          t("「模型设置」里点一张卡就用它生图;每张卡上都有测试连接,不生成图片也能确认地址与密码对不对。", "In Models, tap a card to generate with it. Every card has a connection test that validates the address and password without generating anything."))
+          t("「模型设置」里点一张卡就用它生图;每张卡上都有测试连接,不生成图片也能确认地址、密码、场景与模型都齐了。", "In Models, tap a card to generate with it. Every card has a connection test that checks the address, password, category and models without generating anything."))
       ]) +
       helpSection(t("作品", "Artworks"), [
         helpLine(fa("fa-solid", "folder-open"), t("作品库", "Your artworks"),

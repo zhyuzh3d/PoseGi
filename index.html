@@ -23,11 +23,16 @@
           <span class="brand-mark">P</span>
           <strong>PoseGi</strong>
           <small id="app-version"></small>
+          <!-- 当前文档(作品)的标题。放在版本号后面,与它隔开一点;
+               宽度不够时在末尾截成 "…"(见 styles/base.css 的 .topbar-title)。
+               没有作品时整块收回 —— 空着一段占位比不显示更像出了错。 -->
+          <span class="topbar-title" id="app-title" hidden></span>
         </div>
         <button class="icon-button" id="open-menu" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="app-menu" data-zh="打开菜单" data-en="Open menu" data-i18n-attr="aria-label"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
       </div>
       <div class="app-menu" id="app-menu" hidden>
         <button data-menu="newwork"><i class="fa-solid fa-plus" aria-hidden="true"></i><span data-zh="添加作品" data-en="Add artwork">添加作品</span></button>
+        <button data-menu="editwork"><i class="fa-solid fa-pen" aria-hidden="true"></i><span data-zh="编辑作品" data-en="Edit artwork">编辑作品</span></button>
         <div class="menu-divider"></div>
         <button data-menu="results"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-zh="作品列表" data-en="Artwork list">作品列表</span></button>
         <div class="menu-divider"></div>
@@ -111,18 +116,42 @@
     </section>
   </div>
 
-  <!-- 成图全屏查看:独立的整屏层,双指放缩 / 拖动平移 / 双击复位,并在这里直接删除。
-       它刻意不放进 .app-shell —— 那是个 flex 列,住在里面会被父级尺寸约束住。 -->
+  <!-- 选择弹层:与确认框同一套层结构,但**必须是独立的一层** ——
+       表单住在 #modal-layer 里,而 openSheet 是单例(后开的覆盖先开的);
+       选择层若复用那一层,打开选择就会把表单连同用户已经填好的地址与密码一起顶掉。
+       所以它像 confirm-layer 一样自己一层,只是内容换成一列可滚的选项。
+       2026-09-30 之前这些选项是原生 <select> 弹出的系统列表(下拉、接口模式、分辨率)。 -->
+  <div class="modal-layer picker-layer" id="picker-layer" hidden>
+    <div class="modal-backdrop" data-close-picker></div>
+    <section class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="picker-title" tabindex="-1">
+      <div class="sheet-handle"></div>
+      <header class="modal-header">
+        <div><h2 id="picker-title"></h2></div>
+        <button class="icon-button" data-close-picker data-zh="关闭" data-en="Close" data-i18n-attr="aria-label"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      </header>
+      <div class="modal-content"><div class="picker-list" id="picker-list"></div></div>
+    </section>
+  </div>
+
+  <!-- 成图全屏查看:独立的整屏层,高度充满 / 拖动平移 / 双指放缩 / 底部调色 / 直接删除。
+       它刻意不放进 .app-shell —— 那是个 flex 列,住在里面会被父级尺寸约束住。
+       显示面是**画布**而不是 img(#render-preview-source 只当解码源,自己不显示):
+       调色里的清晰度在 CSS 滤镜里没有对应物,只有画布能一次把六项都做掉。 -->
   <section class="render-preview" id="render-preview" role="dialog" aria-modal="true" aria-label="Image preview" hidden>
     <div class="render-preview-stage" id="render-preview-stage">
-      <img id="render-preview-image" alt="" draggable="false">
+      <img id="render-preview-source" alt="" draggable="false" hidden>
+      <canvas id="render-preview-surface" aria-label="Render" hidden></canvas>
     </div>
     <div class="render-preview-hint" id="render-preview-zoom"></div>
     <div class="render-preview-tools" role="toolbar">
+      <button class="icon-button" id="render-preview-adjust" type="button" aria-expanded="false" aria-controls="render-preview-adjustments" data-zh="调色" data-en="Adjust colors" data-i18n-attr="aria-label"><i class="fa-solid fa-palette" aria-hidden="true"></i></button>
       <button class="icon-button" id="render-preview-reset" type="button" data-zh="复位图片" data-en="Reset image" data-i18n-attr="aria-label"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
       <button class="icon-button" id="render-preview-delete" type="button" data-zh="删除这张成图" data-en="Delete this image" data-i18n-attr="aria-label"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>
       <button class="icon-button" id="render-preview-close" type="button" data-zh="关闭预览" data-en="Close preview" data-i18n-attr="aria-label"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
+    <!-- 六个滑杆与两个动作由 components/render-adjust.js 的 panelHtml() 生成:
+         行程与标签的唯一出处在那里,这里只留一个空的挂载点。 -->
+    <div class="render-preview-adjustments" id="render-preview-adjustments" hidden></div>
   </section>
 
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
@@ -142,10 +171,12 @@
   <script src="./app/services/store.js"></script>
   <script src="./app/services/providers.js"></script>
   <script src="./app/services/translate.js"></script>
+  <script src="./app/services/render-adjust.js"></script>
   <script src="./app/services/image-engine.js"></script>
   <script src="./app/components/ui.js"></script>
   <script src="./app/components/viewport.js"></script>
   <script src="./app/components/gallery.js"></script>
+  <script src="./app/components/translate-hint.js"></script>
   <script src="./app/components/render-preview.js"></script>
   <script src="./app/components/settings.js"></script>
   <script src="./app/features/poser.js"></script>

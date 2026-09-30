@@ -104,11 +104,33 @@
     return angles;
   }
 
-  /* 姿态的存取已随「姿态库」一起下线(2026-09-25)。
-   * 现在一件作品 = 标题 + 提示词 + 它自己的成图(见 store.snapshot),
-   * 姿态不进存储 —— 拖完直接生成,生成时现场渲染参考图,不需要先把姿态存下来。
+  /* ---------- 作品文档里的姿态 ----------
+   *
+   * 2026-09-30 用户要求:「人偶的姿势和摄像机数据要随作品一起保存,每次打开旧作品都要
+   * 恢复人偶的姿势和视口角度」。所以姿态重新进存储 —— 但**不再有独立的姿态库**:
+   * 它就是作品文档里的一个字段(见 store.snapshot 的 pose)。
+   *
+   * 读写都借 app.rig 那一对已有的函数,不另定一套:serialize 过 normalize(不认识的
+   * 关节丢弃、越界角度收进该关节自己的可转范围),parse 再补一次。于是"存出去一份
+   * 手改过的 JSON"也装得回来,而装回来的姿态必然还是一份合法姿态。
+   *
    * 曾经这里有 save() 调 store.savePose(),而 store 早已没有这个方法:
    * 留着它就是一条指着空处的契约(verify.mjs 的跨模块检查会直接报出来)。 */
+
+  function snapshot() {
+    return app.rig.serialize({ name: String(app.state.poseName || ""), angles: current() });
+  }
+
+  /* 把存下来的姿态装回去。给的是一份存坏了的文档(没有 angles / 不是对象)时
+     退回出厂站姿 —— 打开旧作品不能让姿态整个起不来。 */
+  function restore(payload) {
+    var record = app.rig.parse(payload);
+    if (!record) return resetNow();
+    angles = record.angles;
+    app.state.poseName = record.name;
+    changed("", "load");
+    return angles;
+  }
 
   /* 撤销栈:与姿态改动同源,先留接口,实现见 README 的"目标能力" */
   function undo() { throw new Error("撤销尚未实现"); }
@@ -124,6 +146,9 @@
     applyPreset: applyPreset,
     mirror: mirrorNow,
     reset: resetNow,
+    /* 作品文档里的姿态:snapshot 取当前这一份,restore 把存下来的装回去 */
+    snapshot: snapshot,
+    restore: restore,
     undo: undo,
     redo: redo
   };

@@ -1664,6 +1664,18 @@
      生图要的是长边 768 以上的干净图,屏幕上那块画布太小。 */
   /* 截一张指定尺寸的渲染图。第三个参数只管编码:默认 PNG(无损),
      要交给模型时用 JPEG —— 原因在 app.js 的 captureSquare 里写清楚了。 */
+  /* 截图。
+   *
+   * `options.frame` = `{ width, height }`:**把这一帧裁成这个尺寸**,做法是居中取一块
+   * 比例相同的最大矩形(哪一边富余就裁哪一边 —— 画布比目标高就上下各裁一条,比目标
+   * 宽就左右各裁一条),再缩放到这个尺寸。参考图那条链路要的就是这件事:
+   * 画布按 app.defaults.reference 的 canvasWidth/canvasHeight 渲染,裁成 9:16、
+   * 缩到高度 1024(见 app/app.js 的 captureReference)。
+   * 裁剪画在一张离屏 2D 画布上,读的还是刚渲染好的那帧 —— renderer 建的时候开了
+   * `preserveDrawingBuffer`,所以 drawImage 在同一拍里拿得到像素(关掉它就只能同步
+   * toDataURL,那样就裁不了了)。
+   * 返回值里的 width/height 报的是**裁完之后**的尺寸:调用方拿它当"最终发给谁"的依据。
+   */
   function captureAt(width, height, encoding) {
     if (!ready()) throw new Error(text("3D 视口不可用,无法截图", "The 3D viewport is unavailable, so it cannot be captured"));
     var targetWidth = Math.max(64, Math.round(Number(width) || 768));
@@ -1681,6 +1693,19 @@
     state.camera.updateProjectionMatrix();
     renderFrame();
     var dataUrl = format === "image/jpeg" ? state.canvas.toDataURL(format, quality) : state.canvas.toDataURL("image/png");
+    var outputWidth = targetWidth, outputHeight = targetHeight;
+    var frame = options.frame;
+    if (frame && Number(frame.width) > 0 && Number(frame.height) > 0) {
+      var box = app.utils.centerCrop(targetWidth, targetHeight, Number(frame.width), Number(frame.height));
+      var offscreen = document.createElement("canvas");
+      offscreen.width = box.outWidth;
+      offscreen.height = box.outHeight;
+      offscreen.getContext("2d").drawImage(state.canvas, box.x, box.y, box.width, box.height,
+        0, 0, box.outWidth, box.outHeight);
+      dataUrl = format === "image/jpeg" ? offscreen.toDataURL(format, quality) : offscreen.toDataURL("image/png");
+      outputWidth = box.outWidth;
+      outputHeight = box.outHeight;
+    }
 
     state.camera.aspect = restoreAspect;
     state.camera.updateProjectionMatrix();
@@ -1691,11 +1716,14 @@
       dataUrl: dataUrl,
       imageBase64: dataUrl.replace(/^data:[^,]+,/, ""),
       mime: format,
-      width: targetWidth,
-      height: targetHeight,
+      width: outputWidth,
+      height: outputHeight,
       restored: { width: restoreWidth, height: restoreHeight }
     };
   }
+
+  /* 居中取景框的算法本身在 app.utils.centerCrop(纯算术,好单测);
+     这里只用它。两条分支(裁上下 / 裁左右)都在那边,见它的注释。 */
 
   function view() {
     if (!state.camera || !state.controls) return { azimuth: 0, elevation: 0, distance: 0, targetY: 0 };
@@ -1707,6 +1735,59 @@
       distance: distance,
       targetY: state.controls.target.y
     };
+  }
+
+  /* ---------- 作品文档里的视口 ----------
+   *
+   * 2026-09-30 用户要求:「摄像机数据要随作品一起保存,每次打开旧作品都要恢复视口角度」。
+   * 于是 view() 与 applyView() 互为逆运算:前者从"相机减目标"量出球坐标,后者用同样的
+   * 球坐标把相机摆回去。两个方向都只在**这一个文件**里,别处不许自己拼 sin/cos。
+   *
+   * 出厂视口方向 = buildScene 里给相机摆的那一条(正面、略偏右、略俯视)的单位向量。
+   * 存成向量而不是两个角度,是因为 resetView 与 buildScene 都要用它,两处各写一遍
+   * 三角函数迟早对不上。 */
+  var FACTORY_DIRECTION = new THREE.Vector3(0.52, 0.32, 2.75).normalize();
+
+  /* 把一个视口状态装回场景。四个通道全部缺一不可 —— 缺了就从"当前值"接手:
+     targetY 只管纵向,横向仍落在胯骨上(否则存下来的数字会把人物搬到画面外)。 */
+  function applyView(source) {
+    if (!state.camera || !state.controls) return false;
+    var value = source && typeof source === "object" ? source : {};
+    var number = function (raw, fallback) {
+      var parsed = Number(raw);
+      return isFinite(parsed) ? parsed : fallback;
+    };
+    var target = pelvisPoint();
+    target.y = number(value.targetY, target.y);
+    var distance = Math.max(0.05, number(value.distance, state.camera.position.distanceTo(state.controls.target)));
+    /* 仰角夹在 ±83°:再往上相机就翻过天顶,画面会突然上下颠倒 */
+    var elevation = Math.max(-1.45, Math.min(1.45, number(value.elevation, 0)));
+    var azimuth = number(value.azimuth, 0);
+    var flat = Math.cos(elevation) * distance;
+    state.controls.target.copy(target);
+    state.camera.position.set(
+      target.x + Math.sin(azimuth) * flat,
+      target.y + Math.sin(elevation) * distance,
+      target.z + Math.cos(azimuth) * flat
+    );
+    /* 与 frameCamera 同一件事:关一次阻尼跑 update,把上一次拖拽的余量清干净。
+       否则刚装好的视口会被残余速度接着转走,存下来的那个角度就白存了。 */
+    var damping = state.controls.enableDamping;
+    state.controls.enableDamping = false;
+    state.controls.update();
+    state.controls.enableDamping = damping;
+    return true;
+  }
+
+  /* 出厂视口:方向回到正面那条,距离与目标交给取景算(与人偶当前大小一致)。
+     先摆方向再取景 —— frameCamera 保留的是"当前方向",顺序反了就取的是旧方向。 */
+  function resetView() {
+    if (!state.camera || !state.controls) return false;
+    var target = pelvisPoint();
+    state.controls.target.copy(target);
+    state.camera.position.copy(target).addScaledVector(FACTORY_DIRECTION, 2.8);
+    frameCamera();
+    return true;
   }
 
   /* 设备端诊断用:相机的世界位置与朝向、目标点,一次全给出来。
@@ -1816,6 +1897,9 @@
     figure: function () { return state.figure ? state.figure.id : ""; },
     frameCamera: frameCamera,
     view: view,
+    /* 作品文档里的视口:applyView 装回存下来的那一份,resetView 回出厂(正面取景) */
+    applyView: applyView,
+    resetView: resetView,
     cameraState: cameraState,
     counts: counts,
     render: function () { if (ready()) renderFrame(); },

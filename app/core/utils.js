@@ -12,6 +12,21 @@
     return Math.min(maximum, Math.max(minimum, number));
   }
 
+  /* 一个"看得懂的数"。**不能直接用 Number()** —— `Number(null)` 是 0、`Number("")` 是 0、
+     `Number([])` 也是 0,于是记录里一个 `null` 会被静静当成 0 收下:视口变成"角度 0"、
+     调色变成"亮度 0"(整幅全黑),而它看起来是"装上了"。这比整份丢掉更坏。
+     所以:数就用(要有限)、非空字符串解析成有限数就用,别的(含 null / 布尔 / 数组)一律不认。
+     收成一处是因为它要守的是**同一件事** —— 谁在判"记录里这个值算不算数",
+     谁就该用同一个判据(现在有两个:作品文档的字段收口、调色参数)。 */
+  function finiteNumber(value) {
+    if (typeof value === "number") return isFinite(value) ? value : null;
+    if (typeof value === "string" && value.trim() !== "") {
+      var parsed = Number(value);
+      return isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
   function id(prefix) { return String(prefix || "id") + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
@@ -213,6 +228,37 @@
     return global + ", " + local;
   }
 
+  /* 居中取景框:在 sourceWidth × sourceHeight 里取**最大的、比例等于
+     outWidth:outHeight 的居中矩形**,调用方再把它缩放到 outWidth × outHeight。
+     放在 core 里而不是留在 viewport:`(0,0)` 那个角不是重点,**两条边各裁掉多少**
+     才是 —— 它是纯算术,不该为了测它去搬一个 WebGL 上下文起来。
+     **两条分支都要有**:画布比目标高(竖屏常态)裁上下,画布比目标宽(横屏,
+     或将来改画布尺寸)裁左右。只写一条,换个画布尺寸就会把画面拉变形 ——
+     而"拉变形"这件事在 CHP 那条路上会直接被插件用 `stretched_reference` 顶回来。
+     余数一律给上/左:两个方向各裁一半,多出来的那一行(奇数差)给哪边都不影响
+     构图,固定给上边是为了让同一个输入永远得到同一个输出(测得住)。 */
+  function centerCrop(sourceWidth, sourceHeight, outWidth, outHeight) {
+    var source = [Number(sourceWidth) || 0, Number(sourceHeight) || 0];
+    var target = [Number(outWidth) || 0, Number(outHeight) || 0];
+    if (!source[0] || !source[1] || !target[0] || !target[1]) {
+      throw new Error("居中裁切需要源与目标的宽高都是正数");
+    }
+    var aspect = target[0] / target[1];
+    var width = source[0], height = Math.round(width / aspect);
+    if (height > source[1]) {
+      height = source[1];
+      width = Math.round(height * aspect);
+    }
+    width = Math.min(width, source[0]);
+    height = Math.min(height, source[1]);
+    return {
+      x: Math.max(0, Math.round((source[0] - width) / 2)),
+      y: Math.max(0, Math.round((source[1] - height) / 2)),
+      width: width, height: height,
+      outWidth: target[0], outHeight: target[1]
+    };
+  }
+
   function formatTime(value) {
     var date = new Date(Number(value) || Date.now());
     function pad(number) { return (number < 10 ? "0" : "") + number; }
@@ -222,6 +268,7 @@
 
   app.utils = {
     clamp: clamp,
+    finiteNumber: finiteNumber,
     copy: copy,
     id: id,
     sleep: sleep,
@@ -245,6 +292,7 @@
     multipart: multipart,
     imageMimeFromHeaders: imageMimeFromHeaders,
     composePrompt: composePrompt,
+    centerCrop: centerCrop,
     formatTime: formatTime
   };
 })(window.posegi);

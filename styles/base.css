@@ -73,8 +73,23 @@ button { font: inherit; color: inherit; }
   font-size: 13px; font-weight: 700;
 }
 
-.brand strong { font-size: 15px; }
-.brand small { margin-left: 6px; color: var(--muted); font-size: 11px; }
+.brand strong { font-size: 15px; flex: 0 0 auto; }
+.brand small { margin-left: 6px; color: var(--muted); font-size: 11px; flex: 0 0 auto; }
+
+/* 当前文档标题(2026-09-30 用户要求:「版本号后面间隔一点,增加显示当前文档标题,
+   超过可用宽度自动省略」)。它吃的是 brand 这一行的**剩余宽度**:PoseGi 与版本号
+   按内容定宽(flex:0 0 auto,不许被压 —— 压它们会把 "PoseGi" 折成两行),剩下的
+   全给标题,写不下就在末尾截成 "…"。
+   min-width:0 是这条省略号成立的前提:flex 项默认 min-width:auto,不写它,
+   文字会**溢出**容器而不是触发 text-overflow,屏幕上看起来像把菜单按钮顶歪了。
+   没有作品时整块收回(下面那条 [hidden]),不留一个空档占位。 */
+.topbar-title {
+  flex: 0 1 auto; min-width: 0; margin-left: 8px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--muted); font-size: 11px;
+}
+/* 作者样式里的 display 会盖过浏览器对 [hidden] 的默认处理,必须显式收回 */
+.topbar-title[hidden] { display: none; }
 
 .app-menu {
   /* 位置跟着卡片算:卡片底 = 顶栏上内边距 8 + 卡片高 46,再留 6 像素间隙 */
@@ -103,7 +118,9 @@ button { font: inherit; color: inherit; }
    原来是 --muted:菜单浮在场景上,灰色图标在浅一点的画面上几乎看不清。
    文字沿用 --ink(深色主题下本身就是近白色),只有图标单独拉成纯白。 */
 .app-menu button i { width: 18px; color: #fff; }
-.app-menu button span { flex: 1 1 auto; }
+/* 菜单项也是一个按钮,标签同样不许断行(同一条规矩见 components.css 的 .button)。
+   span 是 flex 项,而中文的最短可断点只有一个字 —— 不写 nowrap 它会在窄屏上折行。 */
+.app-menu button span { flex: 1 1 auto; white-space: nowrap; }
 /* 菜单里的分组横线。原来用 --line,深色下和玻璃底只差几个色阶,
    「添加作品」下面那条实测等于看不见(2026-09-26 用户报的)——
    玻璃上的线要用 --glass-divider(灰白),不要用实色表面的 --line。 */

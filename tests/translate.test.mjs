@@ -3,7 +3,7 @@
  * 这里锁的都是"看起来在工作、其实没生效"型的问题:
  *   - 提示词里有中文却没翻(或者反过来:全英文也被送去翻一遍);
  *   - 卡片上的「需要翻译为英文」开关因为写成了真值判断,旧卡被凭空当成需要翻译;
- *   - 改了角色描述,界面上还挂着上一句话的英文译文;
+ *   - 改了角色描述,作品里还挂着上一句话的英文译文(下一提交就发那句旧的);
  *   - 编辑作品时只传标题就被当成"把描述清空了"。
  * 这些都不会报错,只会在几天后变成"为什么模型收到的还是中文"。
  */
@@ -16,7 +16,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 globalThis.window = globalThis.window || {};
 for (const file of ["app/core/namespace.js", "app/core/i18n.js", "app/core/utils.js",
-  "app/services/providers.js", "app/services/store.js", "app/services/translate.js"]) {
+  "app/services/providers.js", "app/services/render-adjust.js", "app/services/store.js", "app/services/translate.js"]) {
   const code = fs.readFileSync(path.join(root, file), "utf8");
   new Function(code)();
 }
@@ -77,7 +77,7 @@ app.platform.haminn = {
 /* ---------- 3) translate():只翻没翻过的中文,英文不占网络 ---------- */
 {
   await store.loadConfig();
-  app.config.connection.endpoint = "http://192.168.124.31:8189/hamdraw/";
+  app.config.connection.endpoint = "http://192.168.124.31:8189/chp/";
   app.config.translate = { enabled: true, endpoint: "", apiKey: "", customHeaders: "" };
 
   /* 默认没配好(enabled=false)时不该翻 */
@@ -94,8 +94,8 @@ app.platform.haminn = {
   const asked = await translate.translate(["一个科幻女战士", "一个科幻女战士", "一座雪山"]);
   assert.equal(calls.length, before + 1, "两条不重复的中文合并成一次请求");
   assert.equal(asked.length, 2, "重复的那条只发一次");
-  assert.equal(calls[calls.length - 1], "http://192.168.124.31:8189/hamdraw/v1/translate",
-    "地址要去掉重复的 /hamdraw/ 再拼端点");
+  assert.equal(calls[calls.length - 1], "http://192.168.124.31:8189/chp/translate",
+    "地址要去掉重复的 /chp/ 再拼端点");
 
   assert.equal(translate.translated("一个科幻女战士"), true);
   assert.equal(translate.english("一个科幻女战士"), fakeEnglish("一个科幻女战士"));
@@ -160,25 +160,72 @@ app.platform.haminn = {
   assert.equal(shape({ id: "a" }).needsEnglish, false);
   assert.equal(shape({ id: "a", needsEnglish: 1 }).needsEnglish, false);
   assert.equal(shape({ id: "a", needsEnglish: "true" }).needsEnglish, false);
-  assert.equal(translate.needed({ needsEnglish: true }), true);
+  assert.equal(translate.needed({ protocol: "openai", needsEnglish: true }), true,
+    "非 CHP 的卡标了要英文 ⇒ 提交时该替它翻一次");
+  assert.equal(translate.needed({ protocol: "chp", needsEnglish: true }), false,
+    "CHP 卡一律不翻(用户定:「CHP 内部可以对模型的工作流添加翻译节点,就是说 CHP 提供的模型"
+    + "都可以视为不需要中文翻译英文」)—— 它的 translation.mode 本来就是 auto-on-submit");
+  assert.equal(translate.needed({ needsEnglish: true }), false,
+    "协议字段缺失按 CHP 处理 ⇒ 同样不翻(客户端译英的后端本来就是那个插件)");
+  assert.equal(translate.needed({ protocol: "openai", needsEnglish: false }), false);
   assert.equal(translate.needed({}), false);
   assert.equal(translate.needed(null), false);
 
   /* 出厂卡一律不吃翻译:插件自己会译英,默认不该多一次往返 */
   app.defaults.models.forEach((item) => assert.equal(item.needsEnglish, false, item.id + " 出厂不该打开翻译"));
   /* 新建卡(切协议 / 切任务)也必须带上这个字段,否则整份 draft 被覆盖时会丢 */
-  assert.equal(app.services.providers.preset("cvp", "qwen").needsEnglish, false);
+  assert.equal(app.services.providers.preset("chp", "render").needsEnglish, false);
+}
+
+/* ---------- 6b) relevant():界面中文 + 当前这张卡标了需要英文 + 它不是 CHP ----------
+    2026-09-30 用户定:「如果当前激活的生图模型不需要英文翻译,那么中文情况下也要
+    去掉所有翻译相关的机制和UI,调用时候直接用默认输入就可以不用管中英文了」,
+    以及「CHP 提供的模型都可以视为不需要中文翻译英文」。
+    界面的提示(translate-hint 的 labelHint)、"该不该自动翻"(image-engine 的 prepare)、
+    设置里那一整块(settings 的 wantsTranslate)问的都是这一句 ——
+    它一旦放宽,那句「请使用英文」会在不该出现的地方冒出来,而三处不会同时错。 */
+{
+  const real = app.services.providers;
+  const realLanguage = app.i18n.language;
+  let lang = "zh";
+  let active = { id: "card", protocol: "openai", needsEnglish: true };
+  app.services.providers = { active: () => active };
+  /* 这一组不装真 document(setLanguage 会去写 documentElement),而这里要的只是
+     "界面语言是哪一种"这一个答案 —— 直接把它钉住更省事,也不会牵进无关依赖。 */
+  app.i18n.language = () => lang;
+
+  assert.equal(translate.relevant(), true, "中文界面 + 非 CHP 的卡要英文 ⇒ 这套机制在用");
+
+  active = { id: "chp-qwen", protocol: "chp", needsEnglish: true };
+  assert.equal(translate.relevant(), false,
+    "CHP 卡 ⇒ 整套翻译机制都该消失(插件自己在工作流里译,客户端不必插手)");
+
+  active = { id: "card", protocol: "openai", needsEnglish: false };
+  assert.equal(translate.relevant(), false, "卡不要英文 ⇒ 整套翻译机制都该消失");
+
+  active = { id: "card", protocol: "openai" };
+  assert.equal(translate.relevant(), false, "字段缺失按「不需要英文」处理,不许当成要翻");
+
+  active = null;
+  assert.equal(translate.relevant(), false, "一张卡都没有时也不该冒出那句提示");
+
+  active = { id: "card", protocol: "openai", needsEnglish: true };
+  lang = "en";
+  assert.equal(translate.relevant(), false, "英文界面下这套机制本来就不存在");
+
+  app.i18n.language = realLanguage;
+  app.services.providers = real;
 }
 
 /* ---------- 7) 补卡迁移只属于 schema 3 那一次 ---------- */
 {
-  const custom = [{ id: "mine", name: "我的卡", protocol: "cvp", task: "quick" }];
+  const custom = [{ id: "mine", name: "我的卡", protocol: "chp", task: "fast" }];
   const old = store.shapeConfig({ schema: 2, models: custom });
   assert.equal(old.models.length, 1 + app.defaults.models.length, "schema 2 的旧装机要补回出厂卡");
   const fresh = store.shapeConfig({ schema: 4, models: custom });
   assert.deepEqual(fresh.models.map((item) => item.id), ["mine"],
     "已经是 schema 4 的配置不该再把用户删掉的出厂卡塞回来");
-  assert.equal(fresh.schema, 4);
+  assert.equal(fresh.schema, app.defaults.schema);
   assert.equal(store.shapeConfig({}).preferences.lastWorkId, "", "lastWorkId 要有默认值");
   assert.equal(store.shapeConfig({}).translate.enabled, false, "翻译默认关闭");
 }
@@ -245,11 +292,11 @@ app.platform.haminn = {
 {
   const build = translate.internals.buildRequest;
 
-  /* CVP:插件接口一次能收多段,认证走 Bearer */
-  const cvp = build("cvp", { endpoint: "http://192.168.124.31:8189/hamdraw", apiKey: "pw", customHeaders: "" }, ["甲", "乙"]);
-  assert.equal(cvp.url, "http://192.168.124.31:8189/hamdraw/v1/translate");
-  assert.equal(cvp.headers.Authorization, "Bearer pw");
-  assert.deepEqual(JSON.parse(cvp.bodyText), { texts: ["甲", "乙"], target: "en" });
+  /* CHP:插件接口一次能收多段,认证走 Bearer */
+  const chp = build("chp", { endpoint: "http://192.168.124.31:8189/chp", apiKey: "pw", customHeaders: "" }, ["甲", "乙"]);
+  assert.equal(chp.url, "http://192.168.124.31:8189/chp/translate");
+  assert.equal(chp.headers.Authorization, "Bearer pw");
+  assert.deepEqual(JSON.parse(chp.bodyText), { texts: ["甲", "乙"], target: "en" });
 
   /* OpenAI 兼容(DeepSeek / Qwen / OpenAI):/chat/completions */
   const openai = build("openai", { endpoint: "https://api.deepseek.com", apiKey: "sk-x", model: "deepseek-chat", customHeaders: "" }, ["甲"]);
@@ -279,13 +326,21 @@ app.platform.haminn = {
   assert.equal(custom.headers.Authorization, "Bearer custom");
 }
 
-/* ---------- 12) 协议白名单:不认识的必须落回 cvp ---------- */
+/* ---------- 12) 协议白名单:不认识的必须落回 chp ---------- */
 {
   const kept = store.shapeConfig({ schema: 4, translate: { protocol: "openai", endpoint: "https://x", apiKey: "k", model: "m" } });
   assert.equal(kept.translate.protocol, "openai");
   assert.equal(kept.translate.model, "m");
   const bogus = store.shapeConfig({ schema: 4, translate: { protocol: "some-llm", endpoint: "https://x" } });
-  assert.equal(bogus.translate.protocol, "cvp", "不认识的协议要落回 CVP,否则地址会按错格式拼");
+  assert.equal(bogus.translate.protocol, "chp", "不认识的协议要落回 CHP,否则地址会按错格式拼");
+  /* 改名前的装机:盘上写的是 cvp。它落在白名单外 —— 回落到 chp,也就是**同一个协议**。
+     这条不加迁移的历史原因:PoseGi 的协议白名单下落点本来就是 chp,不像 hamdraw
+     那样把 cvp 当成一个合法选项(那边必须写一次 schema 迁移)。 */
+  const renamed = store.shapeConfig({ schema: 4, translate: { protocol: "cvp", enabled: true, endpoint: "http://10.0.0.8:8189/chp", model: "old" } });
+  assert.equal(renamed.translate.protocol, "chp", "改名前的 cvp 要落回 CHP 而不是别家");
+  assert.equal(renamed.translate.enabled, true, "别的字段一律不动");
+  assert.equal(renamed.translate.endpoint, "http://10.0.0.8:8189/chp");
+  assert.equal(renamed.translate.model, "old");
 }
 
 /* ---------- 13) 各家回复里怎么把译文取出来(走 probe,那才是真发请求的那条路) ---------- */
@@ -314,7 +369,7 @@ app.platform.haminn = {
   probeReply = { status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: "一只蓝色的水晶鸟" } }] }) };
   await assert.rejects(() => translate.probe({ protocol: "openai", endpoint: "https://x.test/v1", apiKey: "k", model: "m" }));
 
-  /* 非 CVP 没填模型 ID 直接拦下,不发请求 */
+  /* 非 CHP 没填模型 ID 直接拦下,不发请求 */
   probeReply = null;
   await assert.rejects(() => translate.probe({ protocol: "gemini", endpoint: "https://g.test", apiKey: "k", model: "" }));
 }

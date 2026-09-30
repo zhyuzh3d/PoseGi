@@ -1,10 +1,10 @@
 /* 模型卡表单的读写闭环
  *
  * 锁的是一个"不报错、但白干"的 bug(2026-09-26 用户报的「保存无效,打开又是空的」):
- *   CVP 的地址 / 密码 / 请求头在配置里**只有一份**,住在 config.connection 上,
- *   由 store.shareCvp 分发到每一张 cvp 卡。而表单只能把值写进编辑期间的草稿 ——
- *   如果 saveModel 忘了把它回写到 config.connection,shareCvp 紧接着就会拿旧的
- *   空 connection 把所有 cvp 卡的地址覆盖成空。
+ *   CHP 的地址 / 密码 / 请求头在配置里**只有一份**,住在 config.connection 上,
+ *   由 store.shareChp 分发到每一张 chp 卡。而表单只能把值写进编辑期间的草稿 ——
+ *   如果 saveModel 忘了把它回写到 config.connection,shareChp 紧接着就会拿旧的
+ *   空 connection 把所有 chp 卡的地址覆盖成空。
  *   症状:填好地址保存,重新打开又是空的;而且不抛错、不报日志。
  *
  * 这组测试走的是真实的 settings 表单路径(openAddModel / openModels 的编辑按钮),
@@ -19,8 +19,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 globalThis.window = globalThis.window || {};
 
+/* translate.js 也在这里:settings 的「译英」开关与那几行文案都要问它
+   (app.services.translate.wanted / protocols),index.html 里它本来就排在 settings 前面。 */
 const CORE = ["app/core/namespace.js", "app/core/i18n.js", "app/core/utils.js",
-  "app/services/providers.js", "app/services/store.js"];
+  "app/services/providers.js", "app/services/translate.js", "app/services/render-adjust.js",
+  "app/services/store.js"];
 for (const file of CORE) new Function(fs.readFileSync(path.join(root, file), "utf8"))();
 
 const app = globalThis.window.posegi;
@@ -103,42 +106,42 @@ app.components.ui = {
 
 /* ---------- 用例 ---------- */
 
-const VIBE_ENDPOINT = "http://192.168.124.31:8189/hamdraw";
-const VIBE_PASSWORD = "a1x-hamdraw";
+const CHP_ENDPOINT = "http://192.168.124.31:8189/chp";
+const CHP_PASSWORD = "test-chp-password";
 
 await store.loadConfig();
 assert.ok(app.config.models.length >= 3, "出厂应该有几张模型卡");
 
-/* 1) 新建一张 CVP 卡,填上地址与密码,保存后**配置里必须真的有**。
-      修复前:config.connection 还是空的,shareCvp 反手把刚填的地址清掉。 */
+/* 1) 新建一张 CHP 卡,填上地址与密码,保存后**配置里必须真的有**。
+      修复前:config.connection 还是空的,shareChp 反手把刚填的地址清掉。 */
 fieldValues = {
-  name: "家里的 CVP", protocol: "cvp",
-  endpoint: VIBE_ENDPOINT, apiKey: VIBE_PASSWORD, customHeaders: "",
-  size: "512", refStrength: "100", steps: "8", timeoutMs: "60000"
+  name: "家里的 CHP", protocol: "chp",
+  endpoint: CHP_ENDPOINT, apiKey: CHP_PASSWORD, customHeaders: "",
+  resolution: "768x1344", refStrength: "100", steps: "8", timeoutMs: "60000"
 };
 app.components.settings.openAddModel();
 await lastForm.querySelector("[data-save]").onclick();
 
-assert.equal(app.config.connection.endpoint, VIBE_ENDPOINT, "保存后 connection 必须记住地址");
-assert.equal(app.config.connection.apiKey, VIBE_PASSWORD, "保存后 connection 必须记住密码");
+assert.equal(app.config.connection.endpoint, CHP_ENDPOINT, "保存后 connection 必须记住地址");
+assert.equal(app.config.connection.apiKey, CHP_PASSWORD, "保存后 connection 必须记住密码");
 
-const added = app.config.models.filter((item) => item.name === "家里的 CVP")[0];
+const added = app.config.models.filter((item) => item.name === "家里的 CHP")[0];
 assert.ok(added, "新卡应该在模型表里");
-assert.equal(added.endpoint, VIBE_ENDPOINT, "新卡自己的地址也该是刚填的那个");
+assert.equal(added.endpoint, CHP_ENDPOINT, "新卡自己的地址也该是刚填的那个");
 
 const storedConfig = mem.get("config/app");
-assert.equal(storedConfig.connection.endpoint, VIBE_ENDPOINT, "落盘的那份配置同样要有地址");
-assert.ok(storedConfig.models.every((item) => item.protocol !== "cvp" || item.endpoint === VIBE_ENDPOINT),
-  "所有 cvp 卡都应该分发到同一个地址");
+assert.equal(storedConfig.connection.endpoint, CHP_ENDPOINT, "落盘的那份配置同样要有地址");
+assert.ok(storedConfig.models.every((item) => item.protocol !== "chp" || item.endpoint === CHP_ENDPOINT),
+  "所有 chp 卡都应该分发到同一个地址");
 
-/* 2) 编辑一张已有的 CVP 卡改地址,保存后一样要生效。
+/* 2) 编辑一张已有的 CHP 卡改地址,保存后一样要生效。
       这是用户实际走的那条路(模型设置 → 编辑)。 */
 const target = app.config.models[0];
-assert.equal(target.protocol, "cvp", "第一张出厂卡是 CVP");
+assert.equal(target.protocol, "chp", "第一张出厂卡是 CHP");
 fieldValues = {
-  name: target.name, protocol: "cvp",
-  endpoint: "http://192.168.124.31:8189/hamdraw/", apiKey: "changed-password", customHeaders: "",
-  size: "512", refStrength: "100", steps: "8", timeoutMs: "60000"
+  name: target.name, protocol: "chp",
+  endpoint: "http://192.168.124.31:8189/chp/", apiKey: "changed-password", customHeaders: "",
+  resolution: "768x1344", refStrength: "100", steps: "8", timeoutMs: "60000"
 };
 editIds = [target.id];
 app.components.settings.openModels();
@@ -147,16 +150,16 @@ assert.ok(editButton && editButton.onclick, "模型卡上应该有编辑入口")
 editButton.onclick();
 
 await lastForm.querySelector("[data-save]").onclick();
-assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/hamdraw/", "编辑后 connection 要更新");
+assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/chp/", "编辑后 connection 要更新");
 assert.equal(app.config.connection.apiKey, "changed-password", "编辑后密码要更新");
-assert.ok(app.config.models.every((item) => item.protocol !== "cvp" || item.apiKey === "changed-password"),
-  "改一次密码,所有 cvp 卡一起改");
+assert.ok(app.config.models.every((item) => item.protocol !== "chp" || item.apiKey === "changed-password"),
+  "改一次密码,所有 chp 卡一起改");
 
-/* 3) 换到非 CVP 协议保存,不能把已经填好的 CVP 连接冲掉(它是别的协议不关心的那份) */
+/* 3) 换到非 CHP 协议保存,不能把已经填好的 CHP 连接冲掉(它是别的协议不关心的那份) */
 fieldValues = {
-  name: "远端接口", protocol: "cvp",
+  name: "远端接口", protocol: "chp",
   endpoint: "https://api.openai.com/v1", apiKey: "sk-test", model: "gpt-image-1", customHeaders: "",
-  size: "1024", refStrength: "100", steps: "8", timeoutMs: "60000"
+  resolution: "1080x1920", refStrength: "100", steps: "8", timeoutMs: "60000"
 };
 app.components.settings.openAddModel();
 const selector = lastForm.querySelector('[name="protocol"]');
@@ -164,14 +167,14 @@ selector.value = "openai-images";
 selector.onchange();
 await lastForm.querySelector("[data-save]").onclick();
 
-assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/hamdraw/", "非 CVP 卡不该动 CVP 连接");
-assert.equal(app.config.connection.apiKey, "changed-password", "非 CVP 卡不该动 CVP 密码");
+assert.equal(app.config.connection.endpoint, "http://192.168.124.31:8189/chp/", "非 CHP 卡不该动 CHP 连接");
+assert.equal(app.config.connection.apiKey, "changed-password", "非 CHP 卡不该动 CHP 密码");
 const remote = app.config.models.filter((item) => item.name === "远端接口")[0];
-assert.ok(remote && remote.protocol === "openai-images", "换协议后应该存成非 CVP 卡");
-assert.equal(remote.endpoint, "https://api.openai.com/v1", "非 CVP 卡的地址走它自己那份");
-assert.equal(remote.apiKey, "sk-test", "非 CVP 卡的密钥走它自己那份");
+assert.ok(remote && remote.protocol === "openai-images", "换协议后应该存成非 CHP 卡");
+assert.equal(remote.endpoint, "https://api.openai.com/v1", "非 CHP 卡的地址走它自己那份");
+assert.equal(remote.apiKey, "sk-test", "非 CHP 卡的密钥走它自己那份");
 
-/* 4~5) 选到 CVP 时"服务器地址"的预填规则(2026-09-26 用户要求):
+/* 4~5) 选到 CHP 时"服务器地址"的预填规则(2026-09-26 用户要求):
          还没有记录过地址 → 预填一条样例;已经记录过 → 原样显示,绝不覆盖。 */
 const endpointValueIn = (html) => {
   const match = /name="endpoint"[^>]*\bvalue="([^"]*)"/.exec(html || "");
@@ -180,27 +183,82 @@ const endpointValueIn = (html) => {
 
 app.config.connection = { endpoint: "", apiKey: "", customHeaders: "" };
 fieldValues = {
-  name: "新机器", protocol: "cvp", endpoint: "", apiKey: "", customHeaders: "",
-  size: "512", refStrength: "100", steps: "8", timeoutMs: "60000"
+  name: "新机器", protocol: "chp", endpoint: "", apiKey: "", customHeaders: "",
+  resolution: "768x1344", refStrength: "100", steps: "8", timeoutMs: "60000"
 };
 app.components.settings.openAddModel();
-assert.equal(endpointValueIn(lastBody), app.defaults.cvpEndpoint, "还没填过地址时,表单要预填样例地址");
-assert.ok(String(app.defaults.cvpEndpoint).indexOf(":8189/hamdraw") > 0,
-  "样例地址必须带 /hamdraw —— 同一台机器的 8188 是另一个服务,照着填必错");
+assert.equal(endpointValueIn(lastBody), app.defaults.chpEndpoint, "还没填过地址时,表单要预填样例地址");
+assert.ok(String(app.defaults.chpEndpoint).indexOf(":8189/chp") > 0,
+  "样例地址必须带 /chp —— 同一台机器的 8188 是另一个服务,照着填必错");
 
 /* 用户没改这一格,直接保存 —— 表单里读到的就是预填的那条 */
-lastForm.nodes.endpoint.value = app.defaults.cvpEndpoint;
+lastForm.nodes.endpoint.value = app.defaults.chpEndpoint;
 await lastForm.querySelector("[data-save]").onclick();
-assert.equal(app.config.connection.endpoint, app.defaults.cvpEndpoint, "预填的地址要随保存落进 connection");
+assert.equal(app.config.connection.endpoint, app.defaults.chpEndpoint, "预填的地址要随保存落进 connection");
 
-const CUSTOM_ENDPOINT = "http://10.0.0.8:8189/hamdraw";
+const CUSTOM_ENDPOINT = "http://10.0.0.8:8189/chp";
 app.config.connection = { endpoint: CUSTOM_ENDPOINT, apiKey: "keep-me", customHeaders: "" };
 fieldValues = {
-  name: "已填过的机器", protocol: "cvp", endpoint: CUSTOM_ENDPOINT, apiKey: "keep-me", customHeaders: "",
-  size: "512", refStrength: "100", steps: "8", timeoutMs: "60000"
+  name: "已填过的机器", protocol: "chp", endpoint: CUSTOM_ENDPOINT, apiKey: "keep-me", customHeaders: "",
+  resolution: "768x1344", refStrength: "100", steps: "8", timeoutMs: "60000"
 };
 app.components.settings.openAddModel();
 assert.equal(endpointValueIn(lastBody), CUSTOM_ENDPOINT, "已经记录过地址时,表单不能拿样例覆盖它");
 assert.equal(app.config.connection.endpoint, CUSTOM_ENDPOINT, "只是打开表单,不该动配置里的地址");
+
+/* 6~7) 表单上「测试连接」那行字(真实路径:读表单 → 问信息接口 → 落回状态行)。
+         去重是**有条件**的,所以两条都要断:一条能力只有一件文件时,能力名与文件名
+         是同一个字符串,只说一遍;三件套那一路(能力名 qwen2.1 / 文件是 unet·clip·vae)
+         两者不重合,能力名照旧要印。
+         providers.js 在上面的 CORE 里就加载完了,那时它拿不到这里的网络替身(它在模块
+         顶层捕获 app.platform.haminn),所以先把替身装上再重载一次这份模块。 */
+const FIXTURE = JSON.parse(fs.readFileSync(path.join(root, "tests/fixtures/chp-info-3.0.2.json"), "utf8"));
+const INFO = CHP_ENDPOINT + "/info";
+const askedUrls = [];
+app.platform.haminn = {
+  request: async (options) => {
+    const url = String(options.url);
+    askedUrls.push(url);
+    return url === INFO
+      ? { status: 200, bodyText: JSON.stringify(FIXTURE) }
+      : { status: 404, bodyText: "" };
+  },
+  httpError: (response) => new Error("HTTP " + response.status)
+};
+new Function(fs.readFileSync(path.join(root, "app/services/providers.js"), "utf8"))();
+
+app.config.connection = { endpoint: CHP_ENDPOINT, apiKey: CHP_PASSWORD, customHeaders: "" };
+
+async function statusLineFor(cardId) {
+  fieldValues = {
+    name: "看一眼", protocol: "chp", endpoint: CHP_ENDPOINT, apiKey: CHP_PASSWORD, customHeaders: "",
+    resolution: "768x1344", refStrength: "100", steps: "8", timeoutMs: "60000"
+  };
+  editIds = [cardId];
+  app.components.settings.openModels();
+  lastForm.querySelectorAll("[data-edit]")[0].onclick();
+  const status = lastForm.querySelector("[data-test-status]");
+  await lastForm.querySelector("[data-test]").onclick();
+  return String(status.textContent || "");
+}
+
+const FAST_FILE = "DreamShaper8_LCM.safetensors";
+const fastLine = await statusLineFor("chp-quick");
+assert.deepEqual(askedUrls, [INFO], `一次自描述就够,收到 ${JSON.stringify(askedUrls)}`);
+assert.equal(fastLine.split(FAST_FILE).length - 1, 1,
+  `一条能力只有一件文件时,能力名与文件名是同一个,只说一遍;收到:${fastLine}`);
+assert.ok(fastLine.indexOf("checkpoint " + FAST_FILE) >= 0, `文件清单要留着;收到:${fastLine}`);
+/* 快速生图在这台插件上**没有 9:16 档**(真夹具里它只有 1:1 / 4:3 / 3:4)——
+   测试连接必须把这件事说出来,而不是印一句"连接成功"让人以为它能用。
+   这条同时守住反面:别再印 512x512 —— 那个画幅在锁竖幅之后已经不会发出去了。 */
+assert.ok(fastLine.indexOf("9:16") >= 0, `没有竖幅要说出来;收到:${fastLine}`);
+assert.ok(fastLine.indexOf("512x512") < 0, `锁 9:16 之后不该再报 512x512;收到:${fastLine}`);
+
+const renderLine = await statusLineFor("chp-qwen");
+assert.ok(renderLine.indexOf("qwen2.1") >= 0,
+  `三件套那一路能力名与文件名不重合,能力名要印;收到:${renderLine}`);
+assert.ok(renderLine.indexOf("unet ") >= 0 && renderLine.indexOf("vae ") >= 0,
+  `三件文件名要印;收到:${renderLine}`);
+assert.ok(renderLine.indexOf("768x1344") >= 0, `有竖幅就把那一条印出来;收到:${renderLine}`);
 
 console.log("settings.test.mjs: ok");

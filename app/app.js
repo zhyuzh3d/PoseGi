@@ -29,6 +29,95 @@
     app.events.on("pose:selected", function (detail) { viewport.setSelectedJoint(detail.joint, detail.part); });
   }
 
+  /* ---------- 作品文档 ↔ 运行时 ----------
+   *
+   * 一件作品里那几样"它长什么样"的东西(姿态 / 视口 / 模型卡 / 造型 / 成图调色)分别由
+   * poser、viewport、providers、figure、renderPreview 持有,store 只认它们的**形状**。
+   * 于是两个方向都在这里接:
+   *
+   *   存 —— 把取数函数交给 store(它写作品记录时来问"现在是什么样");
+   *   取 —— 监听 work:loaded,把装进来的那一份分发给这几个模块。
+   *
+   * 只有"整份文档换了"才会收到 work:loaded(见 store.applyToState 的注释):
+   * 改标题、改描述不该把人偶摆回出厂姿势。
+   */
+  function wireWorkDocument() {
+    app.services.store.attachDocument(function () {
+      return {
+        pose: app.features.poser.snapshot(),
+        view: app.components.viewport.view(),
+        modelId: app.config ? String(app.config.activeModelId || "") : "",
+        figure: app.features.figure.current(),
+        /* 调色是"活的那一份"由全屏看图持有(和姿态归 poser 一个道理) */
+        render: app.components.renderPreview.adjustments()
+      };
+    });
+    app.events.on("work:loaded", function (detail) {
+      applyDocument(detail && detail.document);
+    });
+    /* 在全屏看图里拖一下滑杆 ⇒ 记进当前作品并安排落盘。
+       镜像到 app.state.document 那一份是为了设备端读数与快照:**持有者是 renderPreview**,
+       这里只是跟着它走的一份(与 poser ↔ document.pose 同一个关系)。 */
+    app.events.on("render:adjusted", function (detail) {
+      if (app.state.document) app.state.document.render = detail;
+      app.services.store.scheduleSave();
+    });
+  }
+
+  function applyDocument(document) {
+    var doc = document && typeof document === "object" ? document : {};
+    /* 顺序不能换:**造型 → 姿态 → 视口**。
+       换造型那一层会连带复位姿态、并且重新取景(figure.apply 就是这么写的),
+       所以它必须排第一;视口排最后,否则会被前面那一步的取景覆盖掉。
+       缺的那几样各自回出厂 —— 这正是"新建作品恢复初始姿势"走的那条路。 */
+    if (doc.figure) app.features.figure.apply(doc.figure);
+    if (doc.pose) app.features.poser.restore(doc.pose);
+    else app.features.poser.reset();
+    if (doc.view) app.components.viewport.applyView(doc.view);
+    else app.components.viewport.resetView();
+    /* 调色:没有就是回中性(新建作品 / schema 2 的老作品都走这一条) */
+    app.components.renderPreview.setAdjustments(doc.render);
+    restoreModel(doc.modelId);
+  }
+
+  /* 打开作品时它用的那张模型卡可能已经不在了(用户在设置里把它删了,或者配置换代)。
+     那就**弹窗说清并把人送去重新选一张**,同时把激活卡落到清单第一张
+     (2026-09-30 用户要求:「如果打开时候找不到对应模型就弹窗提示需要重新选择模型
+     (默认选定模型列表第一个)」)。
+     为什么不静默回落:用户打开旧作品、按下生成,出来的图却不是他当初那张卡画的,
+     而错在哪他看不出来 —— 这件事必须说出来。
+     schema 1 的旧作品没存模型卡(modelId 为空串)时不打扰:那是"没有意见",不是"找不到"。 */
+  function restoreModel(modelId) {
+    var config = app.config;
+    var wanted = String(modelId || "");
+    if (!config || !wanted) return;
+    if (app.services.providers.byId(wanted)) {
+      if (String(config.activeModelId || "") !== wanted) activateModel(wanted);
+      return;
+    }
+    var fallback = (config.models || [])[0];
+    if (fallback) activateModel(fallback.id);
+    app.components.ui.confirm({
+      title: app.i18n.text("这件作品用的模型卡不在了", "This artwork's model card is gone"),
+      message: app.i18n.text("生成时会用列表里的第一张卡。要换成别的,先去模型列表选一张。",
+        "Generation will use the first card in the list. Pick another one in the model list first."),
+      okText: app.i18n.text("去设置模型", "Choose a model"),
+      cancelText: app.i18n.text("知道了", "Got it")
+    }).then(function (go) {
+      if (go) app.components.settings.openModels();
+    });
+  }
+
+  /* 切激活卡 = 改配置 + 立刻落盘(配置保存本身是防抖的,但"哪张卡在用"值得当场写下去:
+     用户下一件事多半就是按生成,而那一下读的是 app.config)。 */
+  function activateModel(id) {
+    var next = String(id || "");
+    if (!app.config || !next) return;
+    app.config.activeModelId = next;
+    app.state.activeModelId = next;
+    app.services.store.saveConfig(app.config).catch(function () {});
+  }
+
   /* 锁竖屏。三道一起上,因为各自的生效条件不同:
      1. 清单里的 `display.orientation: "portrait"` 是正门,由宿主执行(官方指南确认过字段名);
      2. 支持 Screen Orientation API 的内核直接 lock 死;宿主不允许时它会 reject,吞掉即可,
@@ -44,18 +133,22 @@
     } catch (error) { /* 不支持就走清单与 CSS */ }
   }
 
-  /* 给生图引擎的截图口:正方形参考图。
-     交给模型的永远是同一张 1024 边的干净渲染图,与模型卡自己的画幅无关。
+  /* 给生图引擎的截图口:9:16、高度 1024 的参考图(用户 2026-09-30 定)。
+     画布先按 reference 的 canvas 尺寸渲染,再由 viewport 居中裁成 9:16 并缩到目标尺寸
+     (裁切规则与那几个数为什么是 576/1080/1024,见 app/defaults 里 reference 的注释)。
 
      编码是 JPEG 而不是 PNG,因为这张图要**整个塞进请求体**发给模型:宿主单条消息
-     200000 字符封顶(见 platform/haminn.js 的 MESSAGE_CHARS),而 1024 的 PNG 截图
+     200000 字符封顶(见 platform/haminn.js 的 MESSAGE_CHARS),而大尺寸的 PNG 截图
      在真机上量出来是 233750 字符 —— 会被自家的 checkBudget 直接拦下,报
      "超过宿主单次请求上限",连网都出不去。同一张图 JPEG(0.92)只有 62659 字符。
      3D 渲染是一大片平滑渐变,JPEG 的损失落在扩散模型的参考图里看不出来;
      0.92 这个值也是量出来的:0.85 只有 44091 字符,但没必要为了省一半体积再降一档画质。 */
-  function captureSquare(size) {
-    var value = Math.max(64, Math.round(Number(size) || app.config.reference.size));
-    return app.components.viewport.captureAt(value, value, { format: "image/jpeg", quality: 0.92 });
+  function captureReference() {
+    var reference = app.config.reference || app.defaults.reference;
+    return app.components.viewport.captureAt(reference.canvasWidth, reference.canvasHeight, {
+      format: "image/jpeg", quality: 0.92,
+      frame: { width: reference.width, height: reference.height }
+    });
   }
 
   /* 打开"上次用的那件作品";一件作品都没有就弹「添加作品」(2026-09-25 用户要求)。
@@ -101,9 +194,10 @@
 
     app.components.viewport.init(document.getElementById("stage-viewport"));
     app.components.viewport.setTheme(app.state.theme);
-    app.services.imageEngine.init({ capture: captureSquare });
+    app.services.imageEngine.init({ capture: captureReference });
     app.features.poser.init();
     wireViewport();
+    wireWorkDocument();
     app.components.renderPreview.init();
     app.components.settings.init();
     app.features.editor.init();
@@ -124,8 +218,13 @@
     app.events.emit("error", event.reason || new Error("异步操作失败"));
   });
 
-  /* 设备端验收用的可读状态:haminn_get_page_state 读这里的第二个返回值 */
-  window.posegiDevState = {
+  /* 设备端验收用的可读状态。**钩子名是宿主合同定死的**:`haminn_get_page_state`
+     读的是 `window.haminnDevState.capture()`,见 haminnapp 的 docs/webapp-authoring.md
+     「普通 happ 可按以下固定合同提供自己的恢复机制」。
+     这里原来只挂了 `window.posegiDevState`,于是宿主那一侧读到的永远是 null ——
+     整套读数在设备上从来没生效过。现在两个名字都挂上:`haminnDevState` 是合同名,
+     `posegiDevState` 是本仓 guid.md 与工具链一直用的旧名,留着当别名。 */
+  window.haminnDevState = {
     capture: function () {
       var viewport = app.components.viewport;
       return {
@@ -146,6 +245,22 @@
           lastWorkId: app.services.store.lastWorkId(),
           works: app.services.store.listWorks().length
         },
+        /* 当前作品文档里那五样(姿态 / 视口 / 模型卡 / 造型 / 成图调色)。
+           设备端"存了没、装回来没"就看这里:姿态报的是关节个数与预设名,
+           整份角度表太长,而在屏幕上真正要对上的是"装回来的那个视角、那张卡,
+           以及那一套调色"。
+           调色报**两份**:`render` 是作品文档里那份,`renderLive` 是全屏看图手上那份。
+           两份不一致就是"装回来的时候没推过去" —— 那种断法界面上完全看不出来
+           (滑杆还是能拖、图还是能看,只是打开旧作品调色没跟着回来)。 */
+        document: app.state.document ? {
+          poseJoints: app.state.document.pose ? Object.keys(app.state.document.pose.angles).length : 0,
+          poseName: app.state.document.pose ? app.state.document.pose.name : "",
+          view: app.state.document.view,
+          modelId: app.state.document.modelId,
+          figure: app.state.document.figure,
+          render: app.state.document.render,
+          renderLive: app.components.renderPreview.adjustments()
+        } : null,
         translate: {
           enabled: Boolean(app.config && app.config.translate && app.config.translate.enabled),
           endpoint: String(app.config && app.config.translate && app.config.translate.endpoint || ""),
@@ -156,12 +271,16 @@
           cached: Object.keys(app.services.translate.internals.cache).length
         },
         models: (app.config && app.config.models || []).map(function (item) {
-          return { id: item.id, name: item.name, protocol: item.protocol, task: item.task, size: item.size, refStrength: item.refStrength, endpoint: item.endpoint, active: item.id === app.config.activeModelId };
+          /* `task` 就是插件文档里的 `category`(chp/2 没有别名),`resolution` 是真正会
+             发出去的那个字面量 —— CHP 卡上它是从插件帧表挑出来的,不是卡里存的那个数。 */
+          return { id: item.id, name: item.name, protocol: item.protocol, task: item.task, category: item.task,
+            resolution: app.services.providers.resolutionText(item),
+            refStrength: item.refStrength, endpoint: item.endpoint, active: item.id === app.config.activeModelId };
         }),
         viewport: { available: viewport.available(), reason: viewport.reason() },
         figure: { id: app.features.figure.current(), figure: viewport.figure() },
         scene: { mode: viewport.mode(), counts: viewport.counts(), view: viewport.view(), body: viewport.body() },
-        stage: window.posegiDevState.stage(),
+        stage: window.haminnDevState.stage(),
         pose: (function () {
           var angles = app.features.poser.angles();
           var flat = {};
@@ -189,6 +308,33 @@
         topbar: bar ? Math.round(bar.getBoundingClientRect().height) : 0,
         windowHeight: window.innerHeight,
         documentHeight: document.documentElement.scrollHeight
+      };
+    },
+
+    /* 毛玻璃到底有没有被真机认下来 —— 2026-09-30 加"所有毛玻璃压一层黑纱"时补的读数。
+     *
+     * 为什么要在设备上量一次:`--glass` 从"一个颜色"变成了"两层背景"(`linear-gradient`
+     的黑纱 + 白色底),写法一旦被内核丢掉,**整条 `background` 声明都会失效** ——
+     面板会变成全透明压在 3D 场景上,字看不清,而源码里一个字都没错、门禁也全绿
+     (静态检查看的是源文件,不是内核解析的结果)。
+     * getComputedStyle 报的是**解析之后**的值,所以它答的正是"这台机器认不认": 
+     `backgroundImage` 里应当出现那层渐变,`backgroundColor` 里应当是那个白。 */
+    glass: function () {
+      /* 取的是**真的毛玻璃面**:`.topbar` 只是一条透明的定位容器(它自己
+         `background: transparent` 且没有 backdrop-filter),玻璃卡片是它里面的
+         `.topbar-card` —— 探针挑错了元素就会拿到"透明的背景",看起来像"压暗没生效"。 */
+      var probe = document.querySelector(".topbar-card") || document.querySelector(".modal-sheet") ||
+        document.querySelector(".app-menu");
+      var root = document.documentElement;
+      if (!probe) return null;
+      var style = window.getComputedStyle(probe);
+      return {
+        element: "." + String(probe.className || "").split(" ")[0],
+        /* 两套主题各自那个量(唯一旋钮),以及压在它上面的那一层背景 */
+        veil: String(window.getComputedStyle(root).getPropertyValue("--glass-veil") || "").trim(),
+        backgroundImage: String(style.backgroundImage || "").slice(0, 100),
+        backgroundColor: String(style.backgroundColor || ""),
+        backdropFilter: String(style.webkitBackdropFilter || style.backdropFilter || "").slice(0, 60)
       };
     },
 
@@ -244,7 +390,7 @@
       if (patch && Object.prototype.toString.call(patch) === "[object Array]") {
         patch.forEach(function (item) {
           var next = app.services.store.shapeConfig({ models: [item] }).models;
-          var values = app.services.providers.preset(item.protocol || "cvp", item.task || "quick");
+          var values = app.services.providers.preset(item.protocol || "chp", item.task || "fast");
           Object.keys(item).forEach(function (key) { if (key !== "id") values[key] = item[key]; });
           values.id = String(item.id || values.id);
           var position = -1;
@@ -258,7 +404,7 @@
       if (patch && patch.connection) config.connection = app.utils.merge(config.connection, patch.connection);
       return app.services.store.saveConfig(config).then(function (saved) {
         return saved.models.map(function (item) {
-          return { id: item.id, name: item.name, protocol: item.protocol, task: item.task, size: item.size, endpoint: item.endpoint, active: item.id === saved.activeModelId };
+          return { id: item.id, name: item.name, protocol: item.protocol, task: item.task, resolution: app.services.providers.resolutionText(item), endpoint: item.endpoint, active: item.id === saved.activeModelId };
         });
       });
     },
@@ -294,11 +440,16 @@
       });
     },
 
-    /* 直接打一次模型连接测试(不生成图片) */
+    /* 直接打一次模型连接测试(不生成图片)。
+       CHP 卡报的是**从插件文档读到的**事实:协议版本、场景、生效画幅、模型文件。 */
     testModel: function (id) {
       var model = id ? app.services.providers.byId(String(id)) : app.services.providers.active();
       return app.services.providers.test(model).then(function (value) {
-        return { ok: value.ok, task: value.task || "", model: value.model || "" };
+        return {
+          ok: value.ok, protocol: value.protocol || "", spec: value.spec || "",
+          task: value.task || "", category: value.category || value.task || "",
+          resolution: value.resolution || "", model: value.model || "", version: value.version || ""
+        };
       });
     },
 
@@ -321,6 +472,10 @@
       };
     }
   };
+
+  /* 旧名字当别名留着:本仓的 guid.md 与历次真机脚本一直叫它 posegiDevState,
+     而它是**同一个对象**(不是第二份读数),所以两边永远不会各说各话。 */
+  window.posegiDevState = window.haminnDevState;
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();

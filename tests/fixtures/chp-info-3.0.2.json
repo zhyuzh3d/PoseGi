@@ -1,0 +1,563 @@
+{
+ "spec": "chp/2",
+ "plugin": {
+  "id": "hamdraw_chp",
+  "label": {
+   "zh": "CHP 插件（ComfyUI Haminn Protocol）",
+   "en": "CHP plugin (ComfyUI Haminn Protocol)"
+  },
+  "version": "3.0.2"
+ },
+ "auth": {
+  "required": true,
+  "authorized": true,
+  "scheme": "Bearer",
+  "header": "Authorization",
+  "hint": "密码在 ComfyUI 的 CHP 插件配置节点里设置。"
+ },
+ "endpoints": {
+  "info": "/chp/info",
+  "jobs": "/chp/jobs",
+  "job": "/chp/jobs/{job_id}",
+  "progress": "/chp/jobs/{job_id}/progress",
+  "output": "/chp/jobs/{job_id}/output/{index}",
+  "cancel": "/chp/jobs/{job_id}/cancel",
+  "translate": "/chp/translate"
+ },
+ "rules": [
+  {
+   "category": "fast",
+   "rule": "txt-ref-2-img",
+   "signature": "txt-ref-2-img",
+   "input": "txt-ref-2-img/v1",
+   "label": {
+    "zh": "快速生图",
+    "en": "Quick draw"
+   },
+   "description": {
+    "zh": "把画布当作参考图重绘一张 512 × 512 的速写稿。",
+    "en": "Redraw the canvas as a 512 × 512 sketch."
+   },
+   "needs": {
+    "prompt": true,
+    "image": true,
+    "mask": false
+   },
+   "prompt": {
+    "language": "en"
+   },
+   "defaults": {
+    "ref_strength": 0.55
+   },
+   "typical_seconds": 1.2
+  },
+  {
+   "category": "inpaint",
+   "rule": "txt-msk-ref-2-img",
+   "signature": "txt-msk-ref-2-img",
+   "input": "txt-msk-ref-2-img/v1",
+   "label": {
+    "zh": "局部重绘",
+    "en": "Local redraw"
+   },
+   "description": {
+    "zh": "只重画白色蒙版覆盖的区域, 其余部分原样保留。",
+    "en": "Repaint only the white mask area and keep everything else."
+   },
+   "needs": {
+    "prompt": true,
+    "image": true,
+    "mask": true
+   },
+   "prompt": {
+    "language": "en"
+   },
+   "defaults": {
+    "ref_strength": 0.3
+   },
+   "typical_seconds": 2.6
+  },
+  {
+   "category": "upscale",
+   "rule": "txt-ref-2-img",
+   "signature": "txt-ref-2-img",
+   "input": "txt-ref-2-img/v1",
+   "label": {
+    "zh": "图像放大",
+    "en": "Upscale"
+   },
+   "description": {
+    "zh": "把画布放大到 1024 或 2048 并补细节。",
+    "en": "Upscale the canvas to 1024 or 2048 and add detail."
+   },
+   "needs": {
+    "prompt": true,
+    "image": true,
+    "mask": false
+   },
+   "prompt": {
+    "language": "en"
+   },
+   "defaults": {
+    "ref_strength": 0.75
+   },
+   "typical_seconds": 6.0
+  },
+  {
+   "category": "render",
+   "rule": "txt-ref-2-img",
+   "signature": "txt-ref-2-img",
+   "input": "txt-ref-2-img/v1",
+   "label": {
+    "zh": "高质量生图",
+    "en": "High quality render"
+   },
+   "description": {
+    "zh": "重画成一张 1024 以内的成品图。比速写模型重得多, 单张要几十秒。",
+    "en": "Repaint the canvas into a finished picture up to 1024 px. Far heavier than a sketch model."
+   },
+   "needs": {
+    "prompt": true,
+    "image": false,
+    "mask": false
+   },
+   "prompt": {
+    "language": "any"
+   },
+   "defaults": {
+    "ref_strength": 0.95
+   },
+   "typical_seconds": 45.0
+  }
+ ],
+ "abilities": [
+  {
+   "name": "DreamShaper8_LCM.safetensors",
+   "files": {
+    "checkpoint": "DreamShaper8_LCM.safetensors"
+   },
+   "ready": true,
+   "missing": [],
+   "frames": [
+    {
+     "ratio": "1:1",
+     "resolution": [
+      "512x512"
+     ],
+     "category": "fast"
+    },
+    {
+     "ratio": "4:3",
+     "resolution": [
+      "576x384"
+     ],
+     "category": "fast"
+    },
+    {
+     "ratio": "3:4",
+     "resolution": [
+      "384x576"
+     ],
+     "category": "fast"
+    },
+    {
+     "ratio": "1:1",
+     "resolution": [
+      "512x512"
+     ],
+     "category": "inpaint"
+    },
+    {
+     "ratio": "4:3",
+     "resolution": [
+      "576x384"
+     ],
+     "category": "inpaint"
+    },
+    {
+     "ratio": "3:4",
+     "resolution": [
+      "384x576"
+     ],
+     "category": "inpaint"
+    },
+    {
+     "ratio": "1:1",
+     "resolution": [
+      "1024x1024",
+      "2048x2048"
+     ],
+     "category": "upscale"
+    }
+   ]
+  },
+  {
+   "name": "qwen2.1",
+   "files": {
+    "unet": "qwen_image_2.1_int8_convrot.safetensors",
+    "clip": "qwen3vl_8b_int8_convrot.safetensors",
+    "vae": "qwen_image_2.1_vae_bf16.safetensors"
+   },
+   "ready": true,
+   "missing": [],
+   "frames": [
+    {
+     "ratio": "1:1",
+     "resolution": [
+      "1024x1024"
+     ],
+     "category": "render"
+    },
+    {
+     "ratio": "9:16",
+     "resolution": [
+      "768x1344",
+      "576x1024",
+      "432x768"
+     ],
+     "category": "render"
+    },
+    {
+     "ratio": "16:9",
+     "resolution": [
+      "1344x768"
+     ],
+     "category": "render"
+    },
+    {
+     "ratio": "3:4",
+     "resolution": [
+      "832x1152"
+     ],
+     "category": "render"
+    },
+    {
+     "ratio": "4:3",
+     "resolution": [
+      "1152x832"
+     ],
+     "category": "render"
+    },
+    {
+     "ratio": "2:3",
+     "resolution": [
+      "832x1216"
+     ],
+     "category": "render"
+    },
+    {
+     "ratio": "3:2",
+     "resolution": [
+      "1216x832"
+     ],
+     "category": "render"
+    },
+    {
+     "ratio": "21:9",
+     "resolution": [
+      "1536x640"
+     ],
+     "category": "render"
+    }
+   ]
+  }
+ ],
+ "input_schemas": {
+  "txt-ref-2-img/v1": {
+   "type": "object",
+   "required": [
+    "category"
+   ],
+   "properties": {
+    "category": {
+     "type": "string",
+     "title": {
+      "zh": "场景",
+      "en": "Category"
+     },
+     "help": {
+      "zh": "要哪个功能场景。取值见信息文档的 rules。",
+      "en": "Which functional scenario. The information document's rules list them."
+     }
+    },
+    "resolution": {
+     "type": "string",
+     "pattern": "^\\d+x\\d+$",
+     "title": {
+      "zh": "分辨率",
+      "en": "Resolution"
+     },
+     "help": {
+      "zh": "输出分辨率, 写成 \"宽x高\"(如 \"768x1344\")。只能取该类别帧表里列出的值; 省略取该类别第一档。",
+      "en": "Output resolution as \"WxH\" (e.g. \"768x1344\"). Only the values in that category's frames; omitted takes the first."
+     }
+    },
+    "prompt": {
+     "type": "string",
+     "default": "",
+     "title": {
+      "zh": "提示词",
+      "en": "Prompt"
+     },
+     "help": {
+      "zh": "画面描述。是否需要先译成英文由 rules[].prompt.language 决定。",
+      "en": "What to draw. Whether it must be English first is the rule's prompt.language."
+     }
+    },
+    "seed": {
+     "type": "integer",
+     "minimum": 0,
+     "default": 0,
+     "recommended": true,
+     "title": {
+      "zh": "随机种子",
+      "en": "Seed"
+     },
+     "help": {
+      "zh": "0 表示每张都不一样; 同一个值可以复现。",
+      "en": "0 means a new seed each run; the same value reproduces."
+     }
+    },
+    "ref_strength": {
+     "type": "number",
+     "minimum": 0.05,
+     "maximum": 0.95,
+     "title": {
+      "zh": "参考图权重",
+      "en": "Reference influence"
+     },
+     "help": {
+      "zh": "0.05–0.95, 越大越贴近参考图, 越低越放手重画。越界会被夹到边界。",
+      "en": "0.05–0.95. Higher stays closer to the reference, lower redraws more freely. Out of range is clamped."
+     }
+    },
+    "image_base64": {
+     "type": "string",
+     "format": "base64-image",
+     "title": {
+      "zh": "参考图",
+      "en": "Reference"
+     },
+     "help": {
+      "zh": "参考图, PNG/JPEG 的 base64, 可直接给 data URL。",
+      "en": "Reference image as base64 PNG/JPEG; a data URL is accepted as-is."
+     }
+    },
+    "mask_base64": {
+     "type": "string",
+     "format": "base64-image",
+     "title": {
+      "zh": "蒙版",
+      "en": "Mask"
+     },
+     "help": {
+      "zh": "蒙版, 黑底白区, 白色 = 要重画。",
+      "en": "Mask, black background with a white area; white means repaint."
+     }
+    },
+    "ext_params": {
+     "type": "object",
+     "additionalProperties": true,
+     "default": {},
+     "title": {
+      "zh": "模型扩展参数",
+      "en": "Model extensions"
+     },
+     "help": {
+      "zh": "模型层的扩展参数, 原样携带、原样回显。规范不定义任何字段。",
+      "en": "Model-layer extension parameters, carried and echoed verbatim. The spec defines no field in it."
+     }
+    },
+    "chp_params": {
+     "type": "object",
+     "additionalProperties": true,
+     "default": {},
+     "title": {
+      "zh": "CHP 扩展参数",
+      "en": "CHP extensions"
+     },
+     "help": {
+      "zh": "CHP 层的扩展参数。目前只有 password。",
+      "en": "CHP-layer extension parameters. Today only password."
+     }
+    },
+    "request_id": {
+     "type": "string",
+     "maxLength": 200,
+     "title": {
+      "zh": "提交编号",
+      "en": "Request id"
+     },
+     "help": {
+      "zh": "可选。这次提交自己的编号, 由客户端生成。重发同一次提交时沿用同一个值, 服务端就还你**原来那个作业**, 不会再排一个; 换了内容就要换一个值。",
+      "en": "Optional. The client's own id for this submission. Send the same value when retrying the same submission and the server answers with the original job instead of queueing a second one; use a new value when the content changes."
+     }
+    }
+   }
+  },
+  "txt-msk-ref-2-img/v1": {
+   "type": "object",
+   "required": [
+    "category",
+    "mask_base64"
+   ],
+   "properties": {
+    "category": {
+     "type": "string",
+     "title": {
+      "zh": "场景",
+      "en": "Category"
+     },
+     "help": {
+      "zh": "要哪个功能场景。取值见信息文档的 rules。",
+      "en": "Which functional scenario. The information document's rules list them."
+     }
+    },
+    "resolution": {
+     "type": "string",
+     "pattern": "^\\d+x\\d+$",
+     "title": {
+      "zh": "分辨率",
+      "en": "Resolution"
+     },
+     "help": {
+      "zh": "输出分辨率, 写成 \"宽x高\"(如 \"768x1344\")。只能取该类别帧表里列出的值; 省略取该类别第一档。",
+      "en": "Output resolution as \"WxH\" (e.g. \"768x1344\"). Only the values in that category's frames; omitted takes the first."
+     }
+    },
+    "prompt": {
+     "type": "string",
+     "default": "",
+     "title": {
+      "zh": "提示词",
+      "en": "Prompt"
+     },
+     "help": {
+      "zh": "画面描述。是否需要先译成英文由 rules[].prompt.language 决定。",
+      "en": "What to draw. Whether it must be English first is the rule's prompt.language."
+     }
+    },
+    "seed": {
+     "type": "integer",
+     "minimum": 0,
+     "default": 0,
+     "recommended": true,
+     "title": {
+      "zh": "随机种子",
+      "en": "Seed"
+     },
+     "help": {
+      "zh": "0 表示每张都不一样; 同一个值可以复现。",
+      "en": "0 means a new seed each run; the same value reproduces."
+     }
+    },
+    "ref_strength": {
+     "type": "number",
+     "minimum": 0.05,
+     "maximum": 0.95,
+     "title": {
+      "zh": "参考图权重",
+      "en": "Reference influence"
+     },
+     "help": {
+      "zh": "0.05–0.95, 越大越贴近参考图, 越低越放手重画。越界会被夹到边界。",
+      "en": "0.05–0.95. Higher stays closer to the reference, lower redraws more freely. Out of range is clamped."
+     }
+    },
+    "image_base64": {
+     "type": "string",
+     "format": "base64-image",
+     "title": {
+      "zh": "参考图",
+      "en": "Reference"
+     },
+     "help": {
+      "zh": "参考图, PNG/JPEG 的 base64, 可直接给 data URL。",
+      "en": "Reference image as base64 PNG/JPEG; a data URL is accepted as-is."
+     }
+    },
+    "mask_base64": {
+     "type": "string",
+     "format": "base64-image",
+     "title": {
+      "zh": "蒙版",
+      "en": "Mask"
+     },
+     "help": {
+      "zh": "蒙版, 黑底白区, 白色 = 要重画。",
+      "en": "Mask, black background with a white area; white means repaint."
+     }
+    },
+    "ext_params": {
+     "type": "object",
+     "additionalProperties": true,
+     "default": {},
+     "title": {
+      "zh": "模型扩展参数",
+      "en": "Model extensions"
+     },
+     "help": {
+      "zh": "模型层的扩展参数, 原样携带、原样回显。规范不定义任何字段。",
+      "en": "Model-layer extension parameters, carried and echoed verbatim. The spec defines no field in it."
+     }
+    },
+    "chp_params": {
+     "type": "object",
+     "additionalProperties": true,
+     "default": {},
+     "title": {
+      "zh": "CHP 扩展参数",
+      "en": "CHP extensions"
+     },
+     "help": {
+      "zh": "CHP 层的扩展参数。目前只有 password。",
+      "en": "CHP-layer extension parameters. Today only password."
+     }
+    },
+    "request_id": {
+     "type": "string",
+     "maxLength": 200,
+     "title": {
+      "zh": "提交编号",
+      "en": "Request id"
+     },
+     "help": {
+      "zh": "可选。这次提交自己的编号, 由客户端生成。重发同一次提交时沿用同一个值, 服务端就还你**原来那个作业**, 不会再排一个; 换了内容就要换一个值。",
+      "en": "Optional. The client's own id for this submission. Send the same value when retrying the same submission and the server answers with the original job instead of queueing a second one; use a new value when the content changes."
+     }
+    }
+   }
+  }
+ },
+ "translation": {
+  "available": true,
+  "mode": "auto-on-submit",
+  "target": "en",
+  "backend": {
+   "style": "openai-chat-completions",
+   "model": "qwen3-0.6b"
+  },
+  "memory": {
+   "schema": "chp-translation-memory/v1",
+   "entries": 93,
+   "limit": 4000
+  },
+  "rule": "提示词只含 ASCII 时原样提交, 不发起翻译"
+ },
+ "errors": [
+  "bad_image",
+  "bad_mask",
+  "bad_request",
+  "busy",
+  "duplicate_request",
+  "internal",
+  "invalid_workflow",
+  "no_model",
+  "not_found",
+  "stretched_reference",
+  "unauthorized",
+  "unsupported_category",
+  "unsupported_size",
+  "unsupported_steps"
+ ]
+}
