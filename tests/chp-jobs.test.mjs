@@ -8,8 +8,9 @@
  *      `unsupported_category`;
  *   2. 画幅从 `size: [w, h]` 改成 **`resolution: "WxH"` 字符串**,而且只能逐项命中
  *      插件公布的帧表 —— 表外一律 `400 unsupported_size`,客户端不再"在数值域内算一张";
- *   3. 步数与负向提示词搬进 **`ext_params`**(模型层通道,规范不定义任何字段,原样携带
+ *   3. 负向提示词搬进 **`ext_params`**(模型层通道,规范不定义任何字段,原样携带
  *      原样回显)。顶层发 `steps` / `negative_prompt` 会被**静默忽略**并列进 `job.ignored`;
+ *      (2026-10-01 起 **`step` 也不再发** —— 步数属于部署侧的加速档案,见下面那段。)
  *   4. 密码搬进 **`chp_params.password`**,而且**带 body 的请求不再带 Authorization** ——
  *      一个请求只用一种密码载体(GET 带不了 body,只能走头,不带就永远 401);
  *   5. 地址一律从文档的 **`endpoints`** 里读(客户端不许自己拼);
@@ -19,14 +20,26 @@
  * ---------- 2026-09-30 追加:宽高比锁死 9:16 ----------
  *
  * 本应用一律出竖幅(见 app.defaults.ratio),所以真正会发出去的画幅只有帧表里
- * **标着 `9:16`** 的那一档。真夹具里只有 `render` 公布了它(768x1344)——`fast` 与
- * `upscale` 只有 1:1 / 4:3 / 3:4,在锁竖幅之后**出不了图**。那正是这些用例的主角:
- * 挑不出 9:16 档要当场说清"这个场景还没有竖幅",**不许**退回出厂值去撞一个 400。
+ * **标着 `9:16`** 的那一档。真夹具里 `render` 与 `generate` 各有三档 9:16(同一张表),
+ * 而 `fast` / `upscale` 只有 1:1 / 4:3 / 3:4 —— 在锁竖幅之后它们**出不了图**。
+ * 那正是这些用例的主角:挑不出 9:16 档要当场说清"这个场景还没有竖幅",**不许**退回
+ * 出厂值去撞一个 400。
  *
- * 夹具 `tests/fixtures/chp-info-3.0.2.json` 是**从 A1X 真机的 `GET /chp/info` 原样抓下来
- * 的那一份**(2026-09-29,插件 3.0.0;唯一的改动是把 `auth.authorized` 置 true,因为
- * 抓取时没带密码)。用真文档而不是手写一份,是因为"手写的那份比真文档多一个字段"
- * 正是这次断链的成因 —— `abilities[].id` 在真文档里根本不存在。
+ * ---------- 2026-10-01 追加:render 与 generate 的分界 + 步数不发 ----------
+ *
+ * 插件把 render 拆成了两条规则:`render` = 给定一张图重新生成(`txt-ref-2-img`,必须带
+ * 参考图)、`generate` = 纯文字生成(`txt-2-img`,带了图会被**当场拒掉**)。客户端读
+ * `rules[].signature` 里那个 `ref` 就能知道该不该附图,不必靠试。
+ *
+ * 同一次改动还把**步数从请求里拿掉了**:`chp/2` 要客户端报的只有 seed 与画幅,其余旋钮
+ * 属于部署侧。A1X 上配的是"4 步蒸馏 LoRA",而一张这样的 sigma 表**只在它自己那档步数
+ * 上生效** —— 客户端多发一个 `step: 20`,插件就会整条不加速,于是"配置好了"与"实际在
+ * 跑"悄悄分家,从成图上看不出来。
+ *
+ * 夹具 `tests/fixtures/chp-info-3.1.0.json` 与插件源码同源(用 `capabilities.document`
+ * 配一份与 A1X 相同的设置生成,所以 `plugin.version` 就是源码里的版本)。
+ * 之所以用**真文档的形状**而不是手写一份,是因为"手写的那份比真文档多一个字段"
+ * 正是上一次断链的成因 —— `abilities[].id` 在真文档里根本不存在。
  *
  * 加载顺序:providers.js 在加载时就把宿主抓成局部变量,所以替身要先挂上再加载它。
  * 另外 `chpDocument` 是**模块级状态**,"读过文档才按帧表发"这件事必须先调一次
@@ -85,26 +98,36 @@ const internals = providers.internals;
 
 /* ---------- 夹具:真机文档 ---------- */
 const FIXTURE = JSON.parse(fs.readFileSync(
-  path.join(root, "tests/fixtures/chp-info-3.0.2.json"), "utf8"));
+  path.join(root, "tests/fixtures/chp-info-3.1.0.json"), "utf8"));
 
 assert.equal(FIXTURE.spec, "chp/2", "夹具本身必须是 chp/2");
 assert.deepEqual(FIXTURE.rules.map((item) => item.category).sort(),
-  ["fast", "inpaint", "render", "upscale"], "四个场景词就是这四个,没有别名");
+  ["fast", "generate", "inpaint", "render", "upscale"], "五个场景词就是这五个,没有别名");
 assert.ok(!("capabilities" in FIXTURE), "夹具里不该再有 chp/1 的 capabilities");
 assert.ok(!("models" in FIXTURE), "夹具里不该再有 chp/1 的 models");
 assert.ok(FIXTURE.abilities.every((item) => !("id" in item)),
   "真文档的 abilities 条目**没有 id** —— 客户端不许靠它认能力");
 assert.ok(FIXTURE.abilities.every((item) => Array.isArray(item.frames) && item.frames.length),
   "就绪与帧表都挂在 abilities 上");
-/* 这台插件上只有 render 公布了 9:16 —— 整组用例的前提,写成断言免得上游偷偷改了。
-   2026-09-30 那次加档把 9:16 从一档变成三档(768×1344 / 576×1024 / 432×768),
-   **顺序有意义**:默认发的是第 0 条,所以下面那条"发出去的是 768x1344"仍然成立。 */
+/* `render` 与 `generate` 各有一张 9:16 三档表,而且**是同一张** —— 同一族模型的两条路,
+   画幅没有理由不一样。顺序有意义:默认发的是第 0 条(768x1344,就是 Qwen 2.1 公布的
+   那一档 1K 9:16),所以下面那条"发出去的是 768x1344"仍然成立。
+   2026-10-01 之前这三档是 768x1344 / 576x1024 / 432x768:后两条都不是 Qwen 的几何,
+   换成 512x896 / 896x1568 是为了让低/中/高落在**同一个 4:7 几何**上(高 ≤1600、低 ≥500)。 */
 assert.deepEqual(
   FIXTURE.abilities.flatMap((item) => item.frames)
     .filter((frame) => frame.ratio === "9:16")
     .map((frame) => [frame.category, ...frame.resolution]),
-  [["render", "768x1344", "576x1024", "432x768"]],
-  "真夹具里只有 render 有 9:16 档,而且是这三档、这个顺序");
+  [["render", "768x1344", "512x896", "896x1568"],
+   ["generate", "768x1344", "512x896", "896x1568"]],
+  "render 与 generate 各有一张三档表,而且是同一张");
+/* `render` 是"给定一张图重新生成"(`txt-ref-2-img`)、`generate` 是纯文生图(`txt-2-img`)
+   —— 本应用只给前者附参考图,给后者附了会被**当场拒掉**。这个 `ref` 就是分界的全部。 */
+assert.deepEqual(
+  FIXTURE.rules.filter((rule) => rule.category === "render" || rule.category === "generate")
+    .map((rule) => [rule.category, rule.signature, rule.needs.image]),
+  [["render", "txt-ref-2-img", true], ["generate", "txt-2-img", false]],
+  "render 必须带参考图、generate 必须不带 —— 提交体按这一列决定附不附那张图");
 
 /* 复制一份夹具再改,免得用例之间互相污染 */
 function doc(mutate) {
@@ -142,6 +165,12 @@ function card(task) {
   value.apiKey = "test-chp-password";
   return value;
 }
+
+/* 一遍生成要喂给 providers 的那份输入。**参考图是必须的**:`render` 的规则是
+   `txt-ref-2-img`,而插件会拒掉缺图的请求 —— 所以下面每条用例都得带上它,
+   除非那条用例本身就在测"缺图时该说什么"(见第 1c 条)。
+   真机上这份图来自画布渲染(见 app.defaults.reference),这里只要是个数据 URL 就够。 */
+const POSE = { prompt: "p", seed: 1, imageDataUrl: "data:image/png;base64,AAAA" };
 
 /* 一遍完整的提交:读文档 → 提交 → 轮询若干次 → 取图 */
 function arm(options) {
@@ -192,8 +221,10 @@ async function prime(task) { await providers.test(card(task || "render")); }
   assert.equal(body.size, undefined, "chp/2 的 size 是数组形式,已删");
   assert.equal(body.seed, 7, "种子要原样带上");
   assert.equal(typeof body.ref_strength, "number");
-  assert.deepEqual(body.ext_params, { step: 20, negative_prompt: "low quality" },
-    "步数与负向提示词都走模型层通道;render 的出厂步数是 20");
+  assert.deepEqual(body.ext_params, { negative_prompt: "low quality" },
+    "模型层通道里只剩负向提示词 —— **步数不发**(它属于部署侧的加速档案)");
+  assert.equal(body.ext_params.step, undefined,
+    "步数一个字节都不许发:一张蒸馏 LoRA 的 sigma 表只在它自己那档步数上生效,多发一个 step 就把加速整条关掉");
   assert.equal(body.steps, undefined, "顶层 steps 会被放进 job.ignored");
   assert.equal(body.negative_prompt, undefined, "顶层 negative_prompt 会被放进 job.ignored");
   assert.deepEqual(body.chp_params, { password: "test-chp-password" }, "密码走 CHP 层通道");
@@ -238,7 +269,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
   arm();
   await prime();
   let message = "";
-  try { await providers.generate(card("fast"), { prompt: "p", seed: 1 }); } catch (error) { message = String(error.message); }
+  try { await providers.generate(card("fast"), POSE); } catch (error) { message = String(error.message); }
   assert.ok(message.indexOf("快速生图") >= 0, `要点名是哪个场景缺,收到:${message}`);
   assert.ok(message.indexOf("9:16") >= 0, `要说清缺的是哪个比例,收到:${message}`);
   assert.ok(message.indexOf("加一档") >= 0 || message.indexOf("插件") >= 0,
@@ -249,8 +280,58 @@ async function prime(task) { await providers.test(card(task || "render")); }
      这条证明上面那句拦的不是"fast 这个场景",而是"这台插件上 fast 没有竖幅"。 */
   arm({ document: doc(onlyFrames("fast", [{ ratio: "9:16", resolution: ["576x1024"], category: "fast" }])) });
   await prime();
-  await providers.generate(card("fast"), { prompt: "p", seed: 1 });
+  await providers.generate(card("fast"), POSE);
   assert.equal(posted[0].resolution, "576x1024", "插件补了竖幅就该照发");
+}
+
+/* 1c) **render 与 generate 的分界**:附不附那张参考图,由插件那条规则的 `signature`
+      里有没有 `ref` 决定,不是本应用自己列一张场景名单。
+      两个方向都要判 —— 只判一个方向的话,"永远不附图"和"永远附图"都能全绿。 */
+{
+  arm();
+  await prime();
+
+  /* render(`txt-ref-2-img`):**必须**带图,而且要原样带上 */
+  await providers.generate(card("render"),
+    { prompt: "p", seed: 1, imageDataUrl: "data:image/png;base64,AAAA" });
+  assert.equal(typeof posted[0].image_base64, "string", "按图重画那条路要附参考图");
+  assert.equal(typeof posted[0].ref_strength, "number", "有原稿可柔化,参考图权重才有意义");
+
+  /* render 声明了 needs.image=true 而手上又没有图 ⇒ 当场说清,别发一个注定 400 的请求 */
+  const before = posted.length;
+  let message = "";
+  try { await providers.generate(card("render"), { prompt: "p", seed: 1 }); }
+  catch (error) { message = String(error.message); }
+  assert.equal(posted.length, before, "缺参考图时一个字节都不该发出去");
+  assert.ok(message.indexOf("参考图") >= 0 && message.indexOf(internals.taskName("render")) >= 0,
+    `要说清是哪一档缺参考图(名字用插件给的那个),收到:${message}`);
+
+  /* generate(`txt-2-img`):**不许**带图 —— 带了插件会当场拒掉(400 bad_image),
+     而且 `ref_strength` 那一栏也一起不发(没有原稿可柔化) */
+  await providers.generate(card("generate"),
+    { prompt: "p", seed: 1, imageDataUrl: "data:image/png;base64,AAAA" });
+  const plain = posted[posted.length - 1];
+  assert.equal(plain.category, "generate", "场景名照发");
+  assert.equal(plain.image_base64, undefined,
+    "纯文生图那一档**不许**附参考图:插件收到图会报 400 bad_image,收下再丢掉更糟");
+  assert.equal(plain.ref_strength, undefined,
+    "没有原稿可柔化,那一栏就不发 —— 发布一个按了没反应的旋钮比不发布更糟");
+  assert.equal(plain.resolution, "768x1344",
+    "两族共用同一张画幅表,所以默认画幅也一样");
+
+  /* 判据是**派生**的,不是一张名单:把 generate 的规则改成带 ref,它就该收图了 */
+  assert.equal(internals.chpTakesImage(FIXTURE.rules.filter((r) => r.category === "generate")[0]), false,
+    "txt-2-img 不含 ref");
+  assert.equal(internals.chpNeedsImage(FIXTURE.rules.filter((r) => r.category === "render")[0]), true,
+    "render 声明了它必须带图");
+  arm({ document: doc((copy) => {
+    copy.rules.filter((r) => r.category === "generate")[0].signature = "txt-ref-2-img";
+  }) });
+  await prime();
+  await providers.generate(card("generate"),
+    { prompt: "p", seed: 1, imageDataUrl: "data:image/png;base64,AAAA" });
+  assert.equal(typeof posted[posted.length - 1].image_base64, "string",
+    "插件把规则改成带 ref 之后,同一个场景就该收图了 —— 判据在 signature 上,不在本应用这边");
 }
 
 /* 2) 地址真的从 `endpoints` 里读:把文档里的前缀改掉,请求要跟着换。
@@ -270,7 +351,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
   delete replies[STATUS_URL];
 
   await prime();
-  await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  await providers.generate(card("render"), POSE);
 
   assert.ok(asked.indexOf(alt) >= 0, "提交要打到文档新公布的 jobs 地址");
   assert.equal(asked.indexOf(JOBS), -1, "不许再打旧的 /chp/jobs");
@@ -288,27 +369,28 @@ async function prime(task) { await providers.test(card(task || "render")); }
 {
   arm({ document: doc(onlyFrames("render", [{ ratio: "9:16", resolution: ["720x1280"], category: "render" }])) });
   await prime();
-  await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  await providers.generate(card("render"), POSE);
   assert.equal(posted[0].resolution, "720x1280", "帧表说了算,卡里那个 768x1344 不在表里就不作数");
 
   arm({ document: doc(onlyFrames("render", [
     { ratio: "9:16", resolution: ["720x1280", "540x960"], category: "render" }])) });
   await prime();
   const kept = card("render");          // 出厂 resolution 是 768x1344,不在新表里
-  await providers.generate(kept, { prompt: "p", seed: 1 });
+  await providers.generate(kept, POSE);
   assert.equal(posted[0].resolution, "720x1280", "卡里那条不在表里 ⇒ 退回表里第一条");
 
   const chosen = card("render");
   chosen.resolution = "540x960";        // 这次它**在**表里
-  await providers.generate(chosen, { prompt: "p", seed: 1 });
+  await providers.generate(chosen, POSE);
   assert.equal(posted[1].resolution, "540x960", "卡里那条还在表里 ⇒ 沿用用户挑的那一条");
 
-  /* 帧表里同时有横档与竖档:只挑竖的,而且挑的是帧表里那一个字面量 */
+  /* 帧表里只有一条 9:16、而它有三档分辨率:发的是**第 0 条**,也就是 Qwen 2.1 公布的
+     那一档 1K 9:16(768x1344)—— 低/高两档是备选,不该自己变成默认 */
   arm();
   await prime();
-  await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  await providers.generate(card("render"), POSE);
   assert.equal(posted[0].resolution, "768x1344",
-    "真夹具里 render 的 9:16 只有这一档 —— 21:9(1536x640)与 3:4(832x1152)都不该被选中");
+    "夹具里 render 的 9:16 是三档(768x1344 / 512x896 / 896x1568),默认是排在第 0 条的 768x1344");
 }
 
 /* 4) 参考图基准取**规则自报**的 defaults.ref_strength(插件改默认时本应用不用跟着发版)。
@@ -342,7 +424,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
     job: { id: JOB_ID, category: "render", state: "queued", queue_position: 0, ignored: ["capability", "steps"] } }) };
   const lines = [];
   app.events.on("generation:progress", (detail) => { if (detail.stage === "submit") lines.push(detail.detail); });
-  await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  await providers.generate(card("render"), POSE);
   assert.ok(lines.some((line) => line.indexOf("capability") >= 0 && line.indexOf("steps") >= 0),
     `被忽略的字段要点名报出来,收到:${JSON.stringify(lines)}`);
 }
@@ -359,7 +441,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
   const details = [];
   app.events.on("generation:progress", (detail) => { if (detail.stage === "running") details.push(detail.detail); });
 
-  await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  await providers.generate(card("render"), POSE);
 
   assert.ok(details.some((line) => line.indexOf("3") >= 0), `排队时要报出前面还有几个,收到:${JSON.stringify(details)}`);
   assert.ok(details.some((line) => line.indexOf("3") < 0 && line.indexOf("进行中") >= 0),
@@ -373,14 +455,14 @@ async function prime(task) { await providers.test(card(task || "render")); }
   replies[PROGRESS_URL] = { status: 200, bodyText: JSON.stringify({ job: { id: JOB_ID, state: "failed", progress: null } }) };
   replies[STATUS_URL] = { status: 200, bodyText: JSON.stringify({ job: { id: JOB_ID, state: "failed", error: "node 12 not found" } }) };
   let message = "";
-  try { await providers.generate(card("render"), { prompt: "p", seed: 1 }); } catch (error) { message = String(error.message); }
+  try { await providers.generate(card("render"), POSE); } catch (error) { message = String(error.message); }
   assert.ok(message.indexOf("工作流执行失败") >= 0, `失败要报出来,收到:${message}`);
   assert.ok(message.indexOf("node 12 not found") >= 0, `失败原因要取回来,收到:${message}`);
 
   arm();
   replies[PROGRESS_URL] = { status: 200, bodyText: JSON.stringify({ job: { id: JOB_ID, state: "cancelled", progress: null } }) };
   message = "";
-  try { await providers.generate(card("render"), { prompt: "p", seed: 1 }); } catch (error) { message = String(error.message); }
+  try { await providers.generate(card("render"), POSE); } catch (error) { message = String(error.message); }
   assert.ok(message.indexOf("已取消") >= 0, `取消要报出来,收到:${message}`);
 }
 
@@ -388,7 +470,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
 {
   arm();
   replies[STATUS_URL] = { status: 200, bodyText: JSON.stringify({ job: { id: JOB_ID, state: "completed", outputs: [] } }) };
-  await assert.rejects(() => providers.generate(card("render"), { prompt: "p", seed: 1 }), /没有图片输出/);
+  await assert.rejects(() => providers.generate(card("render"), POSE), /没有图片输出/);
 }
 
 /* 9) 协议大版本对不上要当场停下。
@@ -410,7 +492,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
 {
   arm();
   await prime();                      // 这一份是 chp/2,闸门放行
-  await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  await providers.generate(card("render"), POSE);
   assert.equal(posted[0].category, "render", "版本对得上就要照发");
 }
 
@@ -420,7 +502,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
   arm();
   const open = card("render");
   open.apiKey = "";
-  await providers.generate(open, { prompt: "p", seed: 1 });
+  await providers.generate(open, POSE);
   assert.equal(posted[0].chp_params, undefined, "没有密码就整个不发这个通道");
   assert.equal(posted[0].category, "render");
 }
@@ -486,7 +568,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
     { throws: "内部错误", code: "E_INTERNAL" },
     { status: 200, bodyText: JSON.stringify({ job: { id: JOB_ID, state: "completed", queue_position: null, progress: null } }) }
   ];
-  const recovered = await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  const recovered = await providers.generate(card("render"), POSE);
   assert.equal(recovered.logicalFileId, "lf-chp-1", "轮询瞬时失败后仍要把图拿回来");
   assert.equal(sent.filter((item) => item.url === PROGRESS_URL).length, 2,
     "失败的那一次要补问一次(只问一次就是没重试)");
@@ -499,7 +581,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
     { throws: "内部错误", code: "E_INTERNAL" },
     { status: 200, bodyText: "", file: { url: "haminn://blob/chp-1", logicalFileId: "lf-chp-1" } }
   ];
-  const fetched = await providers.generate(card("render"), { prompt: "p", seed: 1 });
+  const fetched = await providers.generate(card("render"), POSE);
   assert.equal(fetched.logicalFileId, "lf-chp-1", "取图瞬时失败后仍要拿到图");
   assert.equal(sent.filter((item) => item.url === OUTPUT_URL).length, 2, "失败的那一次要补取一次");
 
@@ -508,7 +590,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
   await prime();
   replies[PROGRESS_URL] = { status: 401, bodyText: JSON.stringify({ error: "unauthorized" }) };
   let refused = "";
-  try { await providers.generate(card("render"), { prompt: "p", seed: 1 }); } catch (error) { refused = String(error.message); }
+  try { await providers.generate(card("render"), POSE); } catch (error) { refused = String(error.message); }
   assert.ok(refused.indexOf("密码") >= 0, `密码不对要照旧报出来,收到:${refused}`);
   assert.equal(sent.filter((item) => item.url === PROGRESS_URL).length, 1,
     "明确拒绝的错误只问一次(重试它不会换一个结果)");
@@ -521,7 +603,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
   await prime();
   replies[JOBS] = { status: 502, bodyText: JSON.stringify({ error: "boom" }) };
   let submitFailed = "";
-  try { await providers.generate(card("render"), { prompt: "p", seed: 1 }); } catch (error) { submitFailed = String(error.message); }
+  try { await providers.generate(card("render"), POSE); } catch (error) { submitFailed = String(error.message); }
   assert.ok(submitFailed.length > 0, "提交失败要报出来");
   assert.equal(posted.length, 2, "瞬时失败要重发一次(有上限,不是无限)");
   assert.equal(typeof posted[0].request_id, "string", "提交体必须带幂等键");
@@ -538,7 +620,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
   await prime();
   replies[JOBS] = { status: 401, bodyText: JSON.stringify({ error: "unauthorized" }) };
   let refusedSubmit = "";
-  try { await providers.generate(card("render"), { prompt: "p", seed: 1 }); } catch (error) { refusedSubmit = String(error.message); }
+  try { await providers.generate(card("render"), POSE); } catch (error) { refusedSubmit = String(error.message); }
   assert.ok(refusedSubmit.indexOf("密码") >= 0, `密码不对要照常报出来,收到:${refusedSubmit}`);
   assert.equal(posted.length, 1, "终态错误不许重发提交");
 
@@ -561,6 +643,7 @@ async function prime(task) { await providers.test(card(task || "render")); }
     "工作流失败是**作业**的终态(由 state=failed 报),不是这条通信的终态");
 }
 
-console.log("chp-jobs.test.mjs: ok (category、9:16 帧表、没有竖幅时当场拦下、ext_params 两个键、"
+console.log("chp-jobs.test.mjs: ok (category、9:16 帧表、没有竖幅时当场拦下、"
+  + "render/generate 按 signature 决定附不附参考图、步数一个字节都不发、"
   + "chp_params 密码、地址读 endpoints、ignored 点名、队列位置文案、失败取原因、spec 闸门、"
   + "顶层键全在 schema 里、生成前自检四条、等待期间只读请求的有界重试)");

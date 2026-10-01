@@ -54,14 +54,8 @@
     return index ? index.length / 3 : 0;
   }
 
-  /* 按 id + 关节名取几何体,取过一次就留下 —— 切换造型时会来回取同一批几何。
-     basis 可选:传了就在几何上再烘一条 `aSide` 顶点属性,供"正反着色"用。
-     它记的是**这个顶点在静止姿态下朝向角色前方的程度**:正数朝前、负数朝后。
-     之所以烘成顶点属性、而不是每帧算,是因为着色要像**固定的贴图**那样贴在零件表面上 ——
-     顶点属性是几何自带的常量,之后无论怎么转关节、怎么转整体,颜色分布都不会再动。
-     (早先按"世界法线 · 某个全局方向"逐帧算:世界法线跟着关节转、全局方向不跟,
-      于是**一转动关节,颜色就会在同一个零件表面上"流动"** —— 正是要修掉的现象。) */
-  function geometry(id, partName, basis) {
+  /* 按 id + 关节名取几何体,取过一次就留下 —— 切换造型时会来回取同一批几何。 */
+  function geometry(id, partName) {
     var key = String(id || "") + "/" + String(partName || "");
     if (cache[key]) return cache[key];
     var definition = get(id);
@@ -74,28 +68,8 @@
     built.setAttribute("position", new THREE.BufferAttribute(typed(part.pos, Float32Array, 4), 3));
     built.setIndex(new THREE.BufferAttribute(typed(part.idx, Uint16Array, 2), 1));
     built.computeVertexNormals();
-    if (basis) bakeSide(built, basis);
     cache[key] = built;
     return built;
-  }
-
-  /* 把"静止姿态下的零件朝向"烘成顶点属性:side = (basis · 顶点法线) 的 z 分量。
-     basis 是该零件在静止姿态下、从关节局部系到骨架空间(bbox 局部)的旋转,行主序 3x3;
-     角色前方在这个空间里就是 +Z(由 tools/import-model.py 的偏航校正保证),
-     所以 z 分量的正负就是"这个面朝前还是朝后"。
-     顶点法线是**刚体零件自己**的量,与姿态无关 —— 于是 side 也只跟几何有关。 */
-  function bakeSide(geometry, basis) {
-    var THREE = window.THREE;
-    var normals = geometry.getAttribute("normal");
-    if (!THREE || !normals) return false;
-    var count = normals.count;
-    var sides = new Float32Array(count);
-    for (var i = 0; i < count; i++) {
-      /* 行主序:第 3 行(下标 6/7/8)与法线点积,就是 basis·n 的 z 分量 */
-      sides[i] = basis[6] * normals.getX(i) + basis[7] * normals.getY(i) + basis[8] * normals.getZ(i);
-    }
-    geometry.setAttribute("aSide", new THREE.BufferAttribute(sides, 1));
-    return true;
   }
 
   /* 一个模型的粗略规模,给界面与自检报数用 */

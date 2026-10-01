@@ -64,6 +64,18 @@
   /* 底部弹层:内容与底部动作由调用方给出,关闭统一走 closeSheet */
   var closeHandler = null;
 
+  /* sheet 的布局变体:某一张 sheet 想把「哪一块滚动」换个分法时,调 openSheet 时带一个
+     variant 名,由 CSS 按这个标记重新分配。**每次 openSheet 都要重设一遍** ——
+     弹层是单例,标记漏清就会漏给下一张 sheet(生成弹窗要钉住底部,模型列表却跟着不滚了,
+     而它一个字都没改)。 */
+  var SHEET_VARIANTS = ["sheet-scroll-results"];
+  function setSheetVariant(variant) {
+    var section = nodes.modalLayer ? nodes.modalLayer.querySelector(".modal-sheet") : null;
+    if (!section || !section.classList) return;
+    SHEET_VARIANTS.forEach(function (name) { section.classList.remove(name); });
+    if (variant) section.classList.add(String(variant));
+  }
+
   function openSheet(options) {
     var sheet = options || {};
     if (!nodes.modalLayer) return null;
@@ -72,6 +84,7 @@
     nodes.modalContent.innerHTML = String(sheet.bodyHtml || "");
     nodes.modalActions.innerHTML = String(sheet.footerHtml || "");
     nodes.modalActions.hidden = !sheet.footerHtml;
+    setSheetVariant(sheet.variant);
     nodes.modalLayer.hidden = false;
     app.i18n.apply(nodes.modalContent);
     /* 关闭之后该回到哪一层。弹层是单例,后开的会顶掉先开的,所以这个回调必须

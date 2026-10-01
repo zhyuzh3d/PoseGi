@@ -10,7 +10,7 @@
  *   webgl      设备 WebGL 是否可用(决定 3D 视口能否显示)
  *   stageHit   画布是否真的能被点中(有透明层盖住时触摸会被吃掉)
  *   statusLine 状态行是否落在顶栏卡片下方并留出竖向间距
- *   faceMask   正反着色的 shader 注入锚点是否还在、注入是否真的落上了
+ *   skeleton   彩色骨架投影得全不全、真画一遍落没落像素、覆盖层吃不吃指针事件
  *   engine     生图链路:模型卡 / 激活项 / 协议 / 分辨率与参考图强度是否自洽
  *   bridge     Haminn Bridge 是否就绪(开发模式同步时应当为真)
  */
@@ -20,6 +20,7 @@
   function checkNamespace() {
     var missing = [];
     [["utils", app.utils], ["i18n", app.i18n], ["runtime", app.runtime], ["rig", app.rig], ["ik", app.ik],
+      ["skeleton", app.skeleton],
       ["platform.haminn", app.platform.haminn], ["services.assets", app.services.assets],
       ["services.store", app.services.store],
       ["services.providers", app.services.providers], ["services.translate", app.services.translate],
@@ -118,57 +119,91 @@
     return { ok: true, detail: "状态行在顶栏卡片下方 " + gap + "px,行宽 " + Math.round(lineRect.width) + "px" };
   }
 
-  /* 正反着色(viewport 的 shader 注入)为什么值得单列一条:
-     它的注入点**全靠字符串匹配** —— three.js 里 chunk 一改名,replace 找不到锚点就
-     原样返回:不报错、照样编译通过、只是颜色一点没变。这种静默失效没有任何报错可抓,
-     只能自己守。所以查三件事:
-       ① 两个锚点在 THREE.ShaderLib.physical 里还在不在;
-       ② 编译过的源码里有没有我们那两行(没渲染过时查不到,那时不算失败);
-       ③ 开关拨得动吗 —— 拨完立刻还原,不留副作用;
-       ④ 几何上到底有没有烘出 aSide —— 漏了它,那一件会整块显示正面色(同样是静默失效)。
-     顺带把 aSide 的覆盖面报出来。 */
-  function checkFaceMask() {
+  /* 彩色骨架为什么值得单列一条:它有**两处会静默失效**的地方,而失效之后画面照样出得来,
+     只是"发给模型的那张图"不是它该有的样子 —— 那正是这一轮要修的故障本身。
+       ① 投影断了:骨架投不出那 14 根骨头(或下游认不全 18 个键位),渲染器会退回
+          "一张全黑图" —— 不报错、不白屏,模型收到的是一张没有姿势的黑图;
+          (判据在 skeleton.keypoints:缺一根骨头就返回 null,那才是唯一的开关。)
+       ② 覆盖层把舞台吃掉了:那一层若忘了 pointer-events: none,整块舞台点不动,
+          而底部按钮在舞台之外照样能点 —— 与 stage-fallback 是同一个坑,
+          而且它**没有任何行为特征**,只有量计算样式才看得出来。
+     所以这里查三条事实,而不是"函数在不在":
+       ① 投影真的出得全;
+       ② 真画一遍**真的落下了像素**(数出来:几根肢体、几个关节点、几个脸点、几种肢体颜色);
+       ③ 覆盖层挂上了、尺寸是正的、computedStyle 里指针事件是 none。
+     顺带报出当前档位(它是页面状态里唯一会变的那一项)。 */
+  function checkSkeleton() {
     var viewport = app.components.viewport;
+    var renderer = app.skeleton;
+    if (!renderer || typeof renderer.paint !== "function") {
+      return { ok: false, detail: "没有挂上彩色骨架渲染器" };
+    }
+    if (typeof viewport.skeletonInfo !== "function") {
+      return { ok: false, detail: "视口没有暴露骨架覆盖层" };
+    }
+    /* 视口本身就起不来时这一项跟着跳过:没有相机就没有投影,也没有那块画布。
+       (webgl 那一条已经把这件事报出来了,这里再红一次只是噪声。) */
+    if (!viewport.available()) {
+      return { ok: true, detail: "3D 视口不可用,骨架这一项一并跳过(见 webgl)" };
+    }
+
     var problems = [];
     var detail = "";
-    var info = typeof viewport.maskInfo === "function" ? viewport.maskInfo() : null;
-    var physical = window.THREE && window.THREE.ShaderLib ? window.THREE.ShaderLib.physical : null;
+    var info = viewport.skeletonInfo();
+    if (!info.segments) problems.push("投影不出骨架线段");
+    else if (!info.bones) problems.push("投影出的骨头不全,渲染器认不出 18 个键位");
 
-    if (!physical) {
-      problems.push("拿不到 THREE.ShaderLib.physical");
+    /* 真画一遍:用**当前这具骨架的投影**画在离屏画布上,再数像素。
+       不拿屏上那一层来查 —— 它平时是关着的,关了也不该算失败。 */
+    var canvas = document.createElement("canvas");
+    canvas.width = 576;
+    canvas.height = 1024;
+    var context = canvas.getContext("2d");
+    var stats = renderer.paint(context, viewport.poseSegments({ width: 576, height: 1024 }),
+      { width: 576, height: 1024 });
+    if (!stats.drawn) {
+      problems.push("画不出骨架(缺骨头就直接不画,也不会出半张图)");
     } else {
-      if (physical.vertexShader.indexOf("#include <defaultnormal_vertex>") < 0) problems.push("顶点锚点 defaultnormal_vertex 不在了");
-      if (physical.fragmentShader.indexOf("#include <encodings_fragment>") < 0) problems.push("片元锚点 encodings_fragment 不在了(three 是不是升到 r152+)");
+      var expected = renderer.limbs.length;
+      if (stats.limbs !== expected) problems.push("肢体只画了 " + stats.limbs + " 根,应有 " + expected + " 根");
+      if (stats.face !== 68) problems.push("脸点阵不是 68 点(收到 " + stats.face + ")");
+      var palette = countPalette(context, 576, 1024, renderer.palette);
+      if (palette < expected) problems.push("画面上只出现了 " + palette + " 种肢体颜色,应有 " + expected + " 种");
+      detail = stats.limbs + " 根肢体 / " + stats.joints + " 个关节点 / " + stats.face + " 个脸点,"
+        + palette + " 种颜色";
     }
 
-    if (!info) {
-      problems.push("视口没有暴露正反着色");
+    var overlay = document.querySelector(".stage-skeleton");
+    if (!overlay) {
+      problems.push("屏上没有骨架覆盖层");
     } else {
-      if (!info.attached) problems.push("没有材质挂上正反着色");
-      if (info.compiled) {
-        if (info.vertex.indexOf("vSide = aSide") < 0) problems.push("顶点注入没落上");
-        if (info.fragment.indexOf("uMaskFront, step(") < 0) problems.push("片元注入没落上");
-      }
-      if (!info.sided) problems.push("没有零件烘出 aSide,正反着色会整块是正面色");
-      /* 三档循环:既要拨得动,也要**拨到预期的下一档**(档位算错时按钮会原地踏步) */
-      var beforeMode = 0;
-      if (typeof viewport.maskMode !== "function") {
-        problems.push("视口没有暴露正反档位");
-      } else {
-        beforeMode = viewport.maskMode();
-        var cycled = viewport.setFrontBackMask((beforeMode + 1) % 3);
-        if (cycled === beforeMode) problems.push("正反着色拨不动");
-        else if (cycled !== (beforeMode + 1) % 3) {
-          problems.push("正反着色档位不对(期望 " + ((beforeMode + 1) % 3) + ",得到 " + cycled + ")");
-        }
-        viewport.setFrontBackMask(beforeMode);
-      }
-      detail = info.attached + " 处材质," + info.sided + " 件几何带 aSide,混色 "
-        + Number(info.mix).toFixed(2) + ",档位 " + beforeMode
-        + (info.compiled ? ",注入已编译" : ",尚未渲染故未查注入");
+      if (!(overlay.width > 0 && overlay.height > 0)) problems.push("骨架覆盖层尺寸是 0");
+      var style = window.getComputedStyle(overlay);
+      /* 这一条是"还能不能拖关节"的机器判据:覆盖层必须完全不吃指针事件 */
+      if (style.pointerEvents !== "none") problems.push("骨架覆盖层会吃掉指针事件,关节就拖不动了");
+      detail += ",覆盖层 " + overlay.width + "×" + overlay.height + "(" + style.pointerEvents + ")";
     }
+    detail += ",当前" + (viewport.skeletonMode() ? "显示中" : "关闭");
 
     return { ok: problems.length === 0, detail: problems.length ? problems.join(";") : detail };
+  }
+
+  /* 数一数画面上出现了几种**肢体颜色**:按色板逐个对色,而不是数"有没有非黑像素" ——
+     后者在只画出一根线的时候也是绿的,断不出"整张图只画了一半"。
+     对的是精确值:线宽有 18 像素,芯里那些像素就是 strokeStyle 原样写下去的字节
+     (抗锯齿只影响边上那一圈细边)。 */
+  function countPalette(context, width, height, palette) {
+    var index = {};
+    palette.forEach(function (color, at) {
+      index[color[0] + "," + color[1] + "," + color[2]] = at + 1;
+    });
+    var seen = {};
+    var data = context.getImageData(0, 0, width, height).data;
+    for (var at = 0; at < data.length; at += 4) {
+      var hit = index[data[at] + "," + data[at + 1] + "," + data[at + 2]];
+      if (hit) seen[hit] = true;
+    }
+    return Object.keys(seen).length;
   }
 
   async function checkBridge() {
@@ -213,7 +248,7 @@
     report.checks.webgl = checkWebgl();
     report.checks.stageHit = checkStageHit();
     report.checks.statusLine = checkStatusLine();
-    report.checks.faceMask = checkFaceMask();
+    report.checks.skeleton = checkSkeleton();
     report.checks.engine = checkEngine();
     report.checks.bridge = await checkBridge();
     Object.keys(report.checks).forEach(function (name) {

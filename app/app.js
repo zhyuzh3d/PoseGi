@@ -133,20 +133,25 @@
     } catch (error) { /* 不支持就走清单与 CSS */ }
   }
 
-  /* 给生图引擎的截图口:9:16、高度 1024 的参考图(用户 2026-09-30 定)。
-     画布先按 reference 的 canvas 尺寸渲染,再由 viewport 居中裁成 9:16 并缩到目标尺寸
-     (裁切规则与那几个数为什么是 576/1080/1024,见 app/defaults 里 reference 的注释)。
+  /* 给生图引擎的截图口:9:16、高度 1024 的**彩色骨架参考图**(2026-10-01 改)。
+     为什么交出去的是一张骨架、而不是 3D 视口的截图:Qwen-Image 2.1 那条路上参考图
+     就是控制图,而它**长什么样决定了被当成什么** —— 白底黑线会被认成"待临摹的线稿"
+     (出图就是那张线稿的再渲染,提示词完全失效),素模灰度图会被认成"那个木头人偶"
+     (出图就是那个人偶);只有**黑底 + 每条肢体一个 OpenPose 颜色 + 关节圆点 +
+     小尺度脸点阵**,模型才把它认成 **pose**,然后按提示词去生成"一个真人摆这个姿势"。
+     长相与那几处参数全部在 app/core/skeleton.js 里(它的头注释写了每条参数的来历)。
 
-     编码是 JPEG 而不是 PNG,因为这张图要**整个塞进请求体**发给模型:宿主单条消息
-     200000 字符封顶(见 platform/haminn.js 的 MESSAGE_CHARS),而大尺寸的 PNG 截图
-     在真机上量出来是 233750 字符 —— 会被自家的 checkBudget 直接拦下,报
-     "超过宿主单次请求上限",连网都出不去。同一张图 JPEG(0.92)只有 62659 字符。
-     3D 渲染是一大片平滑渐变,JPEG 的损失落在扩散模型的参考图里看不出来;
-     0.92 这个值也是量出来的:0.85 只有 44091 字符,但没必要为了省一半体积再降一档画质。 */
+     取景与裁切与从前一模一样(先按 reference.canvasWidth/canvasHeight 取景、
+     再居中裁成 9:16、缩到目标尺寸),所以骨架落在与人偶**同一次取景**里;
+     屏上那层覆盖 canvas 用的是同一套投影,只是宽高比跟着屏幕走(见 viewport 的
+     彩色骨架覆盖层 一节)。
+
+     编码是 PNG 而不是 JPEG:骨架是一张大面积纯黑的图,PNG 压得极小 ——
+     576×1024 那一张在真 Chrome 里量出来只有 57518 个字符(整个响应体的上限是 200000),
+     而骨线是硬边,JPEG 会在边上糊出一圈灰,那正是"线稿"的观感,不该为省几 KB 糊掉控制图。 */
   function captureReference() {
     var reference = app.config.reference || app.defaults.reference;
-    return app.components.viewport.captureAt(reference.canvasWidth, reference.canvasHeight, {
-      format: "image/jpeg", quality: 0.92,
+    return app.components.viewport.skeletonImage(reference.canvasWidth, reference.canvasHeight, {
       frame: { width: reference.width, height: reference.height }
     });
   }

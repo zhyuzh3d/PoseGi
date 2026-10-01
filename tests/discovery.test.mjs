@@ -55,7 +55,7 @@ new Function(fs.readFileSync(path.join(root, "app/services/providers.js"), "utf8
 const providers = app.services.providers;
 
 const FIXTURE = JSON.parse(fs.readFileSync(
-  path.join(root, "tests/fixtures/chp-info-3.0.2.json"), "utf8"));
+  path.join(root, "tests/fixtures/chp-info-3.1.0.json"), "utf8"));
 
 function doc(mutate) {
   const copy = JSON.parse(JSON.stringify(FIXTURE));
@@ -83,7 +83,7 @@ async function probe(document, task, endpoint) {
 }
 
 /* 1) 读到的是**插件报的那几个事实**(不是本应用自己算的)。
-      主角是 render:这台插件上**只有它**公布了 9:16。 */
+      主角是 render:这台插件上 render 与 generate 各有一张 9:16 三档表(而且同一张)。 */
 {
   const render = await probe(FIXTURE, "render");
   assert.deepEqual(asked, [INFO_URL],
@@ -96,8 +96,8 @@ async function probe(document, task, endpoint) {
   assert.equal(render.category, "render", "场景名就是规则表里的 category");
   assert.equal(render.capability, undefined, "chp/2 没有能力名这个东西");
   assert.equal(render.resolution, "768x1344", "本应用真正会发出去的那一条(9:16 那档的第 0 条)");
-  assert.deepEqual(render.resolutions, ["768x1344", "576x1024", "432x768"],
-    "render 公布的 9:16 就是这三档、这个顺序 —— 那七条横的竖的(21:9、3:4…)一条都别进来");
+  assert.deepEqual(render.resolutions, ["768x1344", "512x896", "896x1568"],
+    "render 公布的 9:16 低/中/高三档、就是这个顺序;中档排在第 0 位,所以它才是默认");
   assert.equal(render.englishOnly, false, "render 声明 language:any,中文也照画");
   assert.equal(render.model, "qwen2.1", "模型来自 abilities[].name");
   assert.equal(render.fileMap.unet, "qwen_image_2.1_int8_convrot.safetensors");
@@ -105,6 +105,22 @@ async function probe(document, task, endpoint) {
   assert.equal(render.fileMap.vae, "qwen_image_2.1_vae_bf16.safetensors");
   assert.ok(render.files.indexOf("unet") >= 0 && render.files.indexOf("vae") >= 0,
     "三件套要一起报出来,不能只挑一个当名字");
+
+  /* generate(纯文生图)是同一族模型的另一条路:同一张三档画幅表,但**不收参考图**。
+     这两件事合起来才是"该附不附那张图"的判据 —— 客户端读 `signature` 里那个 `ref`,
+     不自己另写一张场景名单。 */
+  const gen = await probe(FIXTURE, "generate");
+  assert.equal(gen.category, "generate");
+  assert.deepEqual(gen.resolutions, ["768x1344", "512x896", "896x1568"],
+    "同一张三档表 —— 同一族模型的两条路,画幅没有理由不一样");
+  assert.equal(gen.resolution, "768x1344");
+  assert.equal(providers.internals.chpTakesImage(providers.internals.chpRule("generate")), false,
+    "txt-2-img 不含 ref ⇒ 不附参考图");
+  assert.equal(providers.internals.chpTakesImage(providers.internals.chpRule("render")), true,
+    "txt-ref-2-img 含 ref ⇒ 附");
+  assert.equal(providers.internals.chpNeedsImage(providers.internals.chpRule("render")), true,
+    "render 声明了它必须带图");
+  assert.equal(providers.internals.chpNeedsImage(providers.internals.chpRule("generate")), false);
 
   /* fast / upscale:场景在册、文件装好、就是**没有竖幅** —— 锁 9:16 之后它们出不了图。
      这组断言是"浏览器一边挑不出来就当场说清"的前提(挑的动作见 chp-jobs 第 1b 条)。 */
@@ -145,15 +161,20 @@ async function probe(document, task, endpoint) {
    以前这三样各写死在前端一份,与插件播报的**逐字相同** —— 那是两份会漂移的事实。 */
 {
   await probe(FIXTURE, "render");
-  assert.deepEqual(providers.internals.chpCategories(), ["fast", "upscale", "render"],
+  assert.deepEqual(providers.internals.chpCategories(), ["fast", "upscale", "render", "generate"],
     "清单就是插件播报的那几条、顺序也照它;没有 inpaint —— 它 needs.mask=true,本应用只做整张重画");
   assert.equal(providers.internals.taskName("fast"), "快速生图", "名字取插件给的 label");
   assert.equal(providers.internals.taskName("upscale"), "图像放大");
-  assert.equal(providers.internals.taskName("render"), "高质量生图");
-  assert.equal(providers.internals.taskDescription("render"),
-    "重画成一张 1024 以内的成品图。比速写模型重得多, 单张要几十秒。",
-    "说明也取插件给的那句 —— 前端那一份只是没读到插件时的兜底");
+  assert.equal(providers.internals.taskName("render"), "参考图重绘",
+    "插件 3.1 给 render 的名就是这一句 —— 它现在特指「给定一张图重新生成」,不再是"
+    + "「高质量生图」那种把纯文生图也包进去的叫法");
+  assert.equal(providers.internals.taskName("generate"), "纯文生图", "新分出来的那一档也有名字");
+  assert.equal(providers.internals.taskDescription("generate"),
+    FIXTURE.rules.filter((rule) => rule.category === "generate")[0].description.zh,
+    "说明同样取插件给的那句(前端那一份只是没读到插件时的兜底)");
   assert.equal(providers.internals.chpKnown("render"), true);
+  assert.equal(providers.internals.chpKnown("generate"), true,
+    "新场景也要进白名单,否则卡上选它会被悄悄改回 fast");
   assert.equal(providers.internals.chpKnown("wipe"), false, "插件没播报过的词还是不认");
 
   /* 插件换了说法 / 多播报一个不需要蒙版的场景 ⇒ 界面自己跟上 */
@@ -166,7 +187,7 @@ async function probe(document, task, endpoint) {
   }), "render");
   assert.equal(providers.internals.taskName("render"), "成品图", "插件改了名字,界面跟着改");
   assert.equal(providers.internals.taskDescription("render"), "按参考图重画。");
-  assert.deepEqual(providers.internals.chpCategories(), ["fast", "upscale", "render", "portrait"],
+  assert.deepEqual(providers.internals.chpCategories(), ["fast", "upscale", "render", "generate", "portrait"],
     "新增的场景自己出现在清单里(它没要蒙版)");
   assert.equal(providers.internals.chpKnown("portrait"), true,
     "配置层也要认它,否则卡上选了这个场景会被悄悄改回 fast");

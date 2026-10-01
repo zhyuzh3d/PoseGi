@@ -259,6 +259,35 @@
     };
   }
 
+  /* 视口投影 → 画布像素:把一个**已经投影过**的点(NDC)落到另一块画布上。
+     为什么需要单独一条算法:相机的 fov 是**竖直**的,横向取景范围随 aspect 变 ——
+     同一台相机、同一个位置,把 aspect 从屏幕的 A0 换成参考图的 A1,世界点在 NDC 上
+     的**纵坐标一动不动、横坐标按 aspect 成反比缩放**(投影矩阵的 m00 = 1/(tan(fov/2)·aspect))。
+     于是"换一种取景"不必真的去改相机、再渲染一帧:拿现成的 NDC 换算一次就够 ——
+     窗口的宽高比与渲染那一次一致时,落点就是 renderer 画出来的那**同一个像素**。
+     参考图那条路就是这样拿到骨架的:它按画布 576×1080 取景(屏幕上的相机是另一个宽高比),
+     再居中裁成 576×1024、也就是上下各去掉 28 行;屏上那层覆盖 canvas 则相反 ——
+     它的窗口就是屏幕自己,换算系数恰好是 1(同一条代码,不是两套)。
+
+     windowWidth/windowHeight 是**取景窗口**的像素(参考图 = 画布 576×1080);
+     aspect 是那次取景的宽高比,不给就按窗口本身的宽高比;
+     offsetX/offsetY 是目标画布相对这个窗口的偏移(参考图要居中裁掉上下各 28 行)。
+     放在 core 里而不是留在 viewport:它是纯算术,不该为了测它搬一个 WebGL 上下文起来。 */
+  function placeNdc(ndc, fromAspect, to) {
+    var window = to || {};
+    var width = Number(window.windowWidth) || 0;
+    var height = Number(window.windowHeight) || 0;
+    if (!(width > 0) || !(height > 0)) throw new Error("落点需要取景窗口的宽高都是正数");
+    var want = Number(window.aspect) > 0 ? Number(window.aspect) : width / height;
+    var from = Number(fromAspect) > 0 ? Number(fromAspect) : want;
+    var x = Number(ndc && ndc.x) || 0;
+    var y = Number(ndc && ndc.y) || 0;
+    return {
+      x: (x * (from / want) * 0.5 + 0.5) * width - (Number(window.offsetX) || 0),
+      y: (-y * 0.5 + 0.5) * height - (Number(window.offsetY) || 0)
+    };
+  }
+
   function formatTime(value) {
     var date = new Date(Number(value) || Date.now());
     function pad(number) { return (number < 10 ? "0" : "") + number; }
@@ -293,6 +322,7 @@
     imageMimeFromHeaders: imageMimeFromHeaders,
     composePrompt: composePrompt,
     centerCrop: centerCrop,
+    placeNdc: placeNdc,
     formatTime: formatTime
   };
 })(window.posegi);

@@ -212,7 +212,7 @@ assert.equal(app.config.connection.endpoint, CUSTOM_ENDPOINT, "只是打开表�
          两者不重合,能力名照旧要印。
          providers.js 在上面的 CORE 里就加载完了,那时它拿不到这里的网络替身(它在模块
          顶层捕获 app.platform.haminn),所以先把替身装上再重载一次这份模块。 */
-const FIXTURE = JSON.parse(fs.readFileSync(path.join(root, "tests/fixtures/chp-info-3.0.2.json"), "utf8"));
+const FIXTURE = JSON.parse(fs.readFileSync(path.join(root, "tests/fixtures/chp-info-3.1.0.json"), "utf8"));
 const INFO = CHP_ENDPOINT + "/info";
 const askedUrls = [];
 app.platform.haminn = {

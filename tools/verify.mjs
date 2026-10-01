@@ -48,6 +48,7 @@ const before = (early, late) => assert.ok(scripts.indexOf(early) < scripts.index
 before("app/core/namespace.js", "app/core/utils.js");
 before("app/core/utils.js", "app/core/rig.js");
 before("app/core/rig.js", "app/features/poser.js");
+before("app/core/skeleton.js", "app/components/viewport.js");
 before("app/platform/haminn.js", "app/services/store.js");
 before("app/services/providers.js", "app/services/image-engine.js");
 before("app/components/ui.js", "app/components/viewport.js");

@@ -12,11 +12,18 @@
  *             **chp 卡上它只是"上次挑的那条"**,真值由插件的帧表说了算
  *             (见 chpResolution —— 只挑帧表里标着 `9:16` 的那一档)
  *   refStrength 参考图强度(0–200,100 为中性) → 只对 chp 生效,见 refStrength01
- *   steps / timeoutMs / customHeaders / task(仅 chp;task 的取值就是插件的 category)
+ *   timeoutMs / customHeaders / task(仅 chp;task 的取值就是插件的 category)
+ *
+ * 关于 `steps`(2026-10-01):**步数一个字节都不发**。`chp/2` 要求客户端报的只有
+ * seed 与画幅两样,其余旋钮都属于部署侧(插件那台机器自己的加速档案 / 工作流默认值)。
+ * 本应用的步数本来就没有控件(见 settings 的 chpFrameField),发出去只会把一台配好
+ * 加速的机器按回默认步数上 —— 加速档案**只在自己那一档步数上生效**,于是"配置好了"
+ * 与"实际在跑"会悄悄分家。卡里那一栏只当"还没读过插件文档"时的兜底。
  *
  * input(由 image-engine 组装):
  *   { prompt, negativePrompt, seed, imageDataUrl, mime }
- *   imageDataUrl 永远是 9:16、高度 1024 的渲染参考图(见 app.defaults.reference)
+ *   imageDataUrl 永远是 9:16、高度 1024 的渲染参考图(见 app.defaults.reference);
+ *   但**要不要附**由插件那条规则说了算:带 `ref` 的规则才附(见 chpTakesImage)。
  *
  * 选型说明(照抄 hamdraw 已经跑通的那一套):
  *   - chp(ComfyUI Haminn Protocol)是推荐路径:插件自带工作流,客户端只报场景名 +
@@ -99,6 +106,7 @@
     if (named) return named;
     if (task === "upscale") return t("图像放大", "Upscale");
     if (task === "render") return t("高质量生图", "High-quality render");
+    if (task === "generate") return t("纯文生图", "Text to image");
     return t("快速生图", "Quick draw");
   }
   /* 请求里报的那个场景名,用在进度提示上 */
@@ -110,6 +118,7 @@
     if (said) return said;
     if (task === "upscale") return t("把当前的 1024 渲染图放大并补细节,构图基本不动。", "Upscales the current 1024 render and adds detail; the composition stays put.");
     if (task === "render") return t("按参考图重新作画,是这里最重、也最像成片的一档;单张几十秒,中文提示词它也照画。", "Repaints from the reference. The heaviest task here and the one that looks most like a finished photo; tens of seconds per image, and it reads Chinese too.");
+    if (task === "generate") return t("只按提示词画,不附参考图 —— 没有定妆照时走这一档。", "Draws from the prompt alone, with no reference: the path to take when there is no portrait to work from.");
     return t("最快的草图路线,一两秒出图,适合先看构图;它能出哪几档画幅由下面那份帧表决定。",
       "The fastest sketch path: a second or two, good for checking the composition. Which canvases it offers comes from the frame table below.");
   }
@@ -439,6 +448,23 @@
       return item && String(item.category || "").toLowerCase() === wanted;
     })[0] || null;
   }
+  /* 这条规则**收不收**参考图。判据取自插件公布的 `signature`(形如 `txt-ref-2-img`
+     与 `txt-2-img`),不是本应用另写一张场景名单 —— 插件把某个场景改成"要参考图"或
+     "不要参考图",这里当场跟着变,不用等本应用改版。
+     `render`(给定一张图重新生成)与 `generate`(纯文字生成)的分界就是这一个字符
+     `ref`;`generate` 收到参考图会被插件**当场拒掉**(400 bad_image),不是忽略。
+     读不到规则(还没点过「测试连接」)时返回 true:本应用手上那张图本来就是要发的,
+     而"多发一张它不认的图"会得到一句明确的拒绝,比"该发没发"更容易查。 */
+  function chpTakesImage(rule) {
+    if (!rule) return true;
+    var signature = String(rule.signature || "").trim();
+    if (!signature) return true;
+    return signature.split("-").indexOf("ref") >= 0;
+  }
+  /* 这条规则**必须**带参考图(缺了就是漏参数,不是"它不需要")。 */
+  function chpNeedsImage(rule) {
+    return Boolean(rule && rule.needs && rule.needs.image === true);
+  }
   /* 回答这个场景的那条 `abilities` 条目 —— 它是"一组能跑起来的模型文件",就绪状态
      与文件清单都挂在它身上,而不是挂在场景上(一个场景由哪条能力回答是算出来的)。 */
   function chpAbility(task) {
@@ -584,6 +610,12 @@
     if (/unsupported_category/.test(text)) return new Error(t("插件不认识这个场景,请升级 CHP 插件", "The plugin does not know this category. Please update the CHP plugin."));
     if (/unsupported_size/.test(text)) return new Error(t("插件不接受这个画幅;请点一次「测试连接」,读取插件当前的画幅表", "The plugin does not accept this resolution. Test the connection once to read the plugin's current frames."));
     if (/unsupported_steps/.test(text)) return new Error(t("插件不接受这个步数;请把这张卡换回它自己的出厂步数", "The plugin does not accept this step count. Put this card back on its factory step count."));
+    /* 参考图的两种错共用一个码(`bad_image`):要图没给、与不收图却给了。这里读不到
+       是哪种(调用点手上没有那张卡),所以两句话一起说,并且给出**唯一那条**能分辨
+       它们的动作 —— 读一次插件文档。 */
+    if (/bad_image/.test(text)) return new Error(t("插件说参考图不对:按图重画的场景必须带参考图,纯文字生成那一档则不能带。请点一次「测试连接」读取插件当前的场景定义,再核对模型设置里选的场景",
+      "The plugin refused the reference image: reference-based categories need one, text-to-image categories must not have one. Test the connection to read the plugin's current categories, then check the one selected in the model settings."));
+    if (/bad_mask/.test(text)) return new Error(t("插件说这个场景要蒙版,而本应用只做整张重画:请在模型设置里换一个不要蒙版的场景", "The plugin wants a mask for this category, and this app only repaints the whole picture. Pick a category that takes none."));
     if (/stretched_reference/.test(text)) return new Error(t("参考图与这次画幅的比例对不上,插件拒绝把它压变形;请点一次「测试连接」读取插件当前的画幅表", "The reference does not share this canvas's aspect, and the plugin refuses to stretch it. Test the connection once to read the plugin's current frames."));
     if (/no_model/.test(text)) return new Error(t("插件没有可用模型,请先在 ComfyUI 的 CHP 插件配置节点里为这个场景选好模型", "The plugin has no model. Choose the one this category runs on in the ComfyUI CHP plugin's config node."));
     if (/invalid_workflow/.test(text)) return new Error(t("插件的工作流没跑起来(多半是节点或模型缺失),请查看 ComfyUI 的控制台输出", "The plugin's workflow did not run (usually a missing node or model). Check the ComfyUI console output."));
@@ -626,11 +658,12 @@
   var POLL_RETRY = 3;
 
   /* 哪些错重试也没用。判据只认**插件明确拒绝**的那几种:密码不对、不认识场景 /
-   * 画幅 / 步数、参考图比例对不上、没有模型、工作流没跑起来。那些再问一万次也是
-   * 同一个结果,早点报出来才对;其余(含那句没有任何信息量的「内部错误」)一律当瞬时。 */
+   * 画幅 / 步数、参考图给错了(要的没给 / 不要的给了)、没有模型、工作流没跑起来。
+   * 那些再问一万次也是同一个结果,早点报出来才对;其余(含那句没有任何信息量的
+   * 「内部错误」)一律当瞬时。 */
   function chpTerminal(error) {
     var text = String(error && error.message || error || "");
-    return /unauthorized|401|unsupported_category|unsupported_size|unsupported_steps|stretched_reference|no_model|invalid_workflow|能力已被拒绝|拒绝了此能力|CAPABILITY_DENIED/.test(text);
+    return /unauthorized|401|unsupported_category|unsupported_size|unsupported_steps|stretched_reference|bad_image|bad_mask|bad_request|no_model|invalid_workflow|能力已被拒绝|拒绝了此能力|CAPABILITY_DENIED/.test(text);
   }
 
   /* 只读请求:重试到上限,仍不行就把(已翻译的)错误抛出去。
@@ -790,10 +823,22 @@
       throw new Error(t("插件还没有为“" + taskName(task) + "”公布 " + app.defaults.ratio + " 的分辨率:请在 ComfyUI 的 CHP 插件配置节点里给这个场景加一档竖幅",
         "The plugin publishes no " + app.defaults.ratio + " resolution for " + taskName(task) + ". Add a portrait frame for that category in the ComfyUI CHP plugin's config node."));
     }
-    /* 模型层的两个键是本应用自己要发的东西,它们不再是顶层字段:`chp/2` 顶层不认
-       `steps` 与 `negative_prompt`,发了会被忽略并列进 `job.ignored` —— 那正是
-       "一次改名看得见"的机制,但本应用没理由去触发它。 */
-    var ext = { step: Number(config.steps) || chpSpec(task).steps };
+    /* 参考图附不附**由插件那条规则说了算**:`render` / `fast` / `upscale` 的规则是
+       `txt-ref-2-img`,带图;`generate` 是 `txt-2-img`,带了会被当场拒掉(400 bad_image)。
+       反过来,规则声明 needs.image 却没图是漏参数 —— 那种请求发出去只会让用户在等
+       一张注定 400 的图,所以在这里就说清是哪一种缺。 */
+    var rule = chpRule(task);
+    var takes = chpTakesImage(rule), needs = chpNeedsImage(rule);
+    var reference = takes && input.imageDataUrl ? String(input.imageDataUrl) : "";
+    if (needs && !reference) {
+      throw new Error(t("“" + taskName(task) + "”这一档必须带参考图(它就是按图重画那条路):请先在画布上摆好造型再生成",
+        "The \"" + taskName(task) + "\" category requires a reference image: pose the figure on the canvas first."));
+    }
+    /* 模型层的那个通道:只放**本应用自己要发**的扩展键。步数不在其中 ——
+       `chp/2` 要客户端报的只有 seed 与画幅,步数属于插件那台机器的加速档案
+       (见文件头「关于 steps」)。这里多发的每一个字节,都会把一台配好加速的机器
+       按回默认步数上,而那种退化从成图上看不出来。 */
+    var ext = {};
     if (input.negativePrompt) ext.negative_prompt = input.negativePrompt;
     var body = {
       /* 场景名就是卡上那一栏,不再有第二套词要换算 */
@@ -803,11 +848,13 @@
       resolution: chosen,
       prompt: input.prompt,
       seed: Number(input.seed) >= 0 ? Number(input.seed) : Math.floor(Math.random() * 9007199254740991),
-      ref_strength: refStrength01(config),
       ext_params: ext
     };
+    /* 参考图权重只在**真的带图**时有意义:`generate` 那条路没有原稿可柔化,发它等于
+       发布一个按了没反应的旋钮。不带就由插件按类别默认给一个确定的数。 */
+    if (reference) body.ref_strength = refStrength01(config);
     if (config.apiKey) body.chp_params = { password: config.apiKey };
-    if (input.imageDataUrl) body.image_base64 = input.imageDataUrl;
+    if (reference) body.image_base64 = reference;
     var label = taskLabel(task);
     /* 幂等键**必须在提交之前就定下来**,而且整个重试过程里不变 ——
        它认的就是"这是同一次提交"。见 chpNewRequestId。 */
@@ -1092,6 +1139,11 @@
       /* 界面上的场景清单与它们的名字/说明 —— 一律"插件优先、出厂兜底"
          (见 providers 那一段的注释)。settings 里那一排任务按钮与它下面那句话读这里。 */
       chpCategories: chpCategories,
+      /* 场景自己的契约条目,以及从它 `signature` 算出来的两条判据:
+         "这一档收不收参考图" / "是不是必须带" —— 提交体按它们决定附不附那张图。 */
+      chpRule: chpRule,
+      chpTakesImage: chpTakesImage,
+      chpNeedsImage: chpNeedsImage,
       taskDescription: taskDescription,
       chpUrl: chpUrl,
       taskName: taskName,

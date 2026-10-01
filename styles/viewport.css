@@ -12,6 +12,25 @@
 
 .stage-viewport canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
+/* 彩色骨架覆盖层(2026-10-01):铺在 WebGL 画布正上方的一层 2D canvas。
+   它画的就是"发给模型的那张骨架图",只是黑底换成透明(理由见 viewport 的
+   彩色骨架覆盖层 一节)。三条都不能少:
+   1. **pointer-events: none** —— 它只负责显示,关节拖拽 / 绕转 / 双指平移必须原样穿到
+      下面的画布上(用户原话:「仍然可以拖拽节点摆姿势」)。少这一条,整块舞台会变成
+      "点哪儿都没反应",而底部按钮在舞台之外照样能点(与 stage-fallback 踩的是同一个坑)。
+   2. 选择器写成 `canvas.stage-skeleton`(两级),是为了**盖过上面那条
+      `.stage-viewport canvas { display: block }`** —— 只写 `.stage-skeleton` 特异性更低,
+      `display: none` 会被压掉,表现是"关不掉"(擦掉之后仍然铺在画面上)。
+   3. 层级不写 z-index:两者都是绝对定位的兄弟,按 DOM 顺序后者压前者 ——
+      覆盖层就是 init 里紧跟在画布之后挂上去的(撤一层就少一个会跟布局打架的数)。 */
+.stage-viewport canvas.stage-skeleton {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+  display: none;
+  pointer-events: none;
+}
+
+.stage-viewport canvas.stage-skeleton.is-on { display: block; }
+
 /* "WebGL 不可用" 的提示层:铺满舞台居中显示。
    两条必须写明的规则,少一条都会静默坏掉:
    1. [hidden] 必须显式写 display:none。元素上写了 hidden 属性,
@@ -329,6 +348,28 @@
 .result-grid > .empty-hint { grid-column: 1 / -1; }
 
 .empty-hint { margin: 14px 0 18px 0; color: var(--muted); font-size: 12.5px; text-align: center; }
+
+/* ---------- 生成弹窗的竖向分配(2026-10-01 用户要求) ----------
+   「底部角色描述和生成按钮一行固定不动,只让缩略图超高后竖向滚动」。
+   做法:把内容区改成一根竖向 flex 列,只给 #result-grid 让出**可压缩**的那一份 ——
+   其余几块(进度条、标题行、角色描述)一律 flex:0 0 auto,它们从此不参与收缩,
+   图再多也顶不动它们;溢出全部由网格自己扛。
+   底部按钮本来就不在内容区里(它在 index.html 的 #modal-actions,是内容区的兄弟),
+   它天生钉住,这里不用管。
+
+   标记挂在 .modal-sheet 上,由 ui.openSheet 每次重设(见 ui.js 的 setSheetVariant)——
+   这份分法只属于生成弹窗,漏给模型列表那种 sheet 就会让它连滚都没有。 */
+.modal-sheet.sheet-scroll-results .modal-content {
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-sheet.sheet-scroll-results .modal-content > .gen-progress,
+.modal-sheet.sheet-scroll-results .modal-content > .result-head,
+.modal-sheet.sheet-scroll-results .modal-content > .field { flex: 0 0 auto; }
+/* 唯一会滚的那一块。**min-height:0 是必需品**:flex 项目的自动最小高度默认等于内容高,
+   不归零它就死活不缩,滚动条永远不会出现(看着像"这条样式没生效")。 */
+.modal-sheet.sheet-scroll-results .modal-content > #result-grid {
+  flex: 0 1 auto; min-height: 0; overflow-y: auto;
+}
 
 /* 生成中的那颗 dock 按钮转成黑色(用户要求:「生成时候外面的生成按钮是黑色的,但仍然可以用」),
    但**呼吸的是那颗图标,不是按钮**(2026-09-30 用户要求:「正在渲染的时候,不是渲染按钮呼吸闪烁发光,

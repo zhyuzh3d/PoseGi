@@ -199,7 +199,11 @@
     var known = app.services.providers && app.services.providers.internals
       ? app.services.providers.internals.chpCategories() : Object.keys(app.defaults.chpTasks);
     if (known.indexOf(task) < 0) task = "fast";
-    var spec = app.defaults.chpTasks[task];
+    /* 出厂表里没有这个场景也要活下来:插件多播报一个场景(比如 2026-10-01 加的
+       `generate`)之后,上面那道白名单会放它进来,而这张表里没有它的那一行 ——
+       直接读 `spec.steps` 会当场抛。兜底取 fast 那一行,与 providers 的 chpSpec
+       同一个口径(它也是 `chpTasks[task] || chpTasks.fast`)。 */
+    var spec = app.defaults.chpTasks[task] || app.defaults.chpTasks.fast;
     return {
       id: String(item.id || app.utils.id("model")),
       name: String(item.name || "").trim() || factoryName(task),

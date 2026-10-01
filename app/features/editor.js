@@ -522,55 +522,59 @@
     });
   }
 
-  /* ---------- 底部 sheet:渲染(正反着色) ---------- */
+  /* ---------- 底部 sheet:渲染(彩色骨架) ---------- */
 
-  /* 三个档位改为横向 tab 组(2026-09-25 用户要求)。
-     两处都从同一个 MODE_INFO 派生:tab 上写短名、下面写这一档到底做了什么 ——
-     以前三行 list 每行自带图标与说明,横过来之后放不下,只能拆成"选择"与"解释"两层。 */
-  var MASK_MODES = [
-    { value: 0, icon: "fa-solid fa-circle-half-stroke", zh: "无", en: "Off",
-      zhHint: "显示模型原本的材质颜色", enHint: "Show the model's own material colours" },
-    { value: 1, icon: "fa-solid fa-adjust", zh: "正反黑白", en: "Grey",
-      zhHint: "正面偏白、背面偏灰,30% 混合", enHint: "Front toward white, back toward grey, 30% mix" },
-    { value: 2, icon: "fa-solid fa-adjust", zh: "正反红绿", en: "Red-green", dangerous: true,
-      zhHint: "正面偏红、背面偏绿,30% 混合", enHint: "Front toward red, back toward green, 30% mix" }
+  /* 两个档位(2026-10-01 用户要求):关 / 彩色骨架。
+     原来是"无 / 正反黑白 / 正反红绿"三档 —— 红绿那一档连同它底下整套 shader 注入一起删了,
+     换成**骨架覆盖层**:打开之后屏上直接铺一层"发给模型的那张彩色骨架 + 脸点阵",
+     而人偶照旧拖得动(覆盖层 pointer-events: none,见 viewport 那一节)。
+     为什么留着这张弹窗、而不是把 dock 上那颗按钮改成一键开关:它下面要写清"这一层是什么、
+     会不会跟着截图与成图走",这两句只有弹窗里放得下(位置与旧三档完全相同,只是档位少了一个)。 */
+  var SKELETON_MODES = [
+    { value: 0, icon: "fa-solid fa-circle-half-stroke", zh: "关闭", en: "Off",
+      zhHint: "只看人偶自己", enHint: "Show the figure only" },
+    { value: 1, icon: "fa-solid fa-person", zh: "彩色骨架", en: "Colour skeleton",
+      zhHint: "叠一层发给模型的彩色骨架与脸点阵,仍然可以拖拽节点摆姿势",
+      enHint: "Overlay the colour skeleton and face points sent to the model; joints stay draggable" }
   ];
 
-  function maskInfo(mode) {
-    return MASK_MODES.filter(function (item) { return item.value === Number(mode); })[0] || MASK_MODES[0];
+  function skeletonInfo(mode) {
+    return SKELETON_MODES.filter(function (item) { return item.value === Number(mode); })[0] || SKELETON_MODES[0];
   }
 
-  function maskLabel(mode) {
-    var info = maskInfo(mode);
+  function skeletonLabel(mode) {
+    var info = skeletonInfo(mode);
     return text(info.zh, info.en);
   }
 
   function openRenderSheet() {
-    var mode = Number(app.components.viewport.maskMode()) || 0;
-    var tabs = '<div class="tab-row" role="tablist">' + MASK_MODES.map(function (item) {
+    var mode = app.components.viewport.skeletonMode() ? 1 : 0;
+    var tabs = '<div class="tab-row" role="tablist">' + SKELETON_MODES.map(function (item) {
       return '<button type="button" role="tab" class="tab-button' + (item.value === mode ? " is-on" : "") +
         '" data-mode="' + item.value + '" aria-selected="' + (item.value === mode ? "true" : "false") + '">' +
-        '<i class="' + item.icon + (item.dangerous ? " is-danger" : "") + '" aria-hidden="true"></i>' +
+        '<i class="' + item.icon + '" aria-hidden="true"></i>' +
         esc(text(item.zh, item.en)) + "</button>";
     }).join("") + "</div>";
 
     function hintHtml(value) {
-      var info = maskInfo(value);
+      var info = skeletonInfo(value);
       return '<p class="tab-hint">' + esc(text(info.zhHint, info.enHint)) + "</p>";
     }
 
     app.components.ui.openSheet({
       eyebrow: text("检查", "Inspect"),
       title: text("渲染", "Render"),
-      bodyHtml: tabs + '<div id="mask-hint">' + hintHtml(mode) + "</div>" +
-        '<p class="sheet-note">' + text("只改变显示,不改变姿态,也不会进成图。",
-          "This only changes the display. It never changes the pose and never reaches the generated image.") + "</p>",
+      bodyHtml: tabs + '<div id="skeleton-hint">' + hintHtml(mode) + "</div>" +
+        '<p class="sheet-note">' + text("这一层只是显示:它不吃触摸,也不会被截图与成图带上 —— "
+          + "发给模型的那张骨架图是按当前姿势与视角重新画的一张。",
+          "This is display only: it never takes touch input, and it never reaches a screenshot "
+          + "or a generated image — the skeleton sent to the model is drawn fresh from the current pose and view.") + "</p>",
       onMount: function (content) {
-        var hint = content.querySelector("#mask-hint");
+        var hint = content.querySelector("#skeleton-hint");
         Array.prototype.forEach.call(content.querySelectorAll("[data-mode]"), function (button) {
           button.onclick = function () {
             var next = Number(button.dataset.mode);
-            app.components.viewport.setFrontBackMask(next);
+            app.components.viewport.setSkeletonMode(next > 0);
             Array.prototype.forEach.call(content.querySelectorAll("[data-mode]"), function (item) {
               var on = Number(item.dataset.mode) === next;
               item.classList.toggle("is-on", on);
@@ -579,7 +583,7 @@
             if (hint) hint.innerHTML = hintHtml(next);
             syncDock();
             if (next === 0) status(defaultStatus());
-            else status(text("正反着色:", "Front/back tint: ") + maskLabel(next));
+            else status(text("渲染:", "Render: ") + skeletonLabel(next));
           };
         });
       }
@@ -645,6 +649,23 @@
         return removeResult(button.dataset.deleteResult);
       });
     });
+  }
+
+  /* 作品里最后存进来的那一张 —— 网格顶上那张就是它(renderResults 先 reverse 再画) */
+  function newestResultId() {
+    var list = app.state.results || [];
+    return list.length ? String(list[list.length - 1].id) : "";
+  }
+
+  /* 这一张现在在不在这张网格里。**不拼选择器**:拼的话 id 里一旦出现引号或方括号,
+     选择器就坏了 —— 而坏掉的选择器只会静默返空,不报错。 */
+  function gridHasResult(grid, id) {
+    if (!grid || !id) return false;
+    var cells = grid.querySelectorAll("[data-result]");
+    for (var index = 0; index < cells.length; index += 1) {
+      if (String(cells[index].dataset.result) === String(id)) return true;
+    }
+    return false;
   }
 
   function renderCount(content) {
@@ -751,6 +772,9 @@
     app.components.ui.openSheet({
       eyebrow: text("生成", "Generation"),
       title: app.state.workTitle || text("出图", "Render"),
+      /* 这张 sheet 的滚动只发生在缩略图那一段:角色描述与底部按钮钉住不动
+         (2026-10-01 用户要求)。分法写在 styles/viewport.css 的 sheet-scroll-results 里。 */
+      variant: "sheet-scroll-results",
       bodyHtml: html,
       footerHtml: '<button class="button button-primary button-block" data-generate type="button">' +
         text("立即生成新图", "Generate a new image") + '</button>' +
@@ -865,13 +889,25 @@
   /* 弹层根:底部那排按钮与内容区是兄弟,刷新必须从根上查(见 syncGenerateSheet) */
   function sheetRoot() { return node("modal-layer"); }
 
-  /* 打开着生成弹窗时,成图一有变化就重画那两块;弹窗关着就什么都不做 */
+  /* 打开着生成弹窗时,成图一有变化就重画那两块;弹窗关着就什么都不做。
+   *
+   * 重画之后还要判一件事:**顶上那张是不是新画出来的** —— 是就把它滚进视野
+   * (2026-10-01 用户要求:「每次有新图生成都要滚动到顶部以便用户可以看到」)。
+   * 缩略图那段是这张弹窗里唯一会滚的区域(见 styles/viewport.css 的 sheet-scroll-results),
+   * 而新图渲染在**最上面**,所以"让用户看见"就是滚到顶。
+   *
+   * 判据是"这张 id 之前不在格子里",不是"顶上的 id 变了" —— 后者会把
+   * 「删掉最上面那张」也当成新图,平白把用户刚滚到的位置拉回顶。 */
   function refreshGenerateSheet() {
     var content = node("modal-content");
     if (!content || !content.querySelector("#result-grid")) return;
+    var grid = content.querySelector("#result-grid");
+    var incoming = newestResultId();
+    var appeared = Boolean(incoming) && !gridHasResult(grid, incoming);
     renderResults(content);
     renderCount(content);
     syncGenerateSheet();
+    if (appeared) grid.scrollTop = 0;
   }
 
   /* 作品列表(原「作品库」,2026-09-25 用户要求改名;新增作品的入口挪到菜单里) */
@@ -915,14 +951,14 @@
 
   /* ---------- 浮动按钮 ---------- */
 
-  /* 底部按钮的"开着"状态集中刷:正反档位、生成中。
-     几处各改一次类名,迟早有一处忘了同步(比如渲染开着却看不出)。
+  /* 底部按钮的"开着"状态集中刷:骨架覆盖层、生成中。
+     几处各改一次类名,迟早有一处忘了同步(比如骨架开着却看不出)。
      2026-09-30 起这里不再管搬运:「工具」里那一项已按用户要求去掉,搬运模式没有入口,
      留着那两行只会让下一个人以为还能点亮。 */
   function syncDock() {
     var viewport = app.components.viewport;
     var render = node("toggle-render");
-    if (render) render.classList.toggle("is-on", viewport.maskMode() > 0);
+    if (render) render.classList.toggle("is-on", viewport.skeletonMode());
     var generate = node("open-generate");
     if (generate) generate.classList.toggle("is-busy", app.services.imageEngine.busy());
   }

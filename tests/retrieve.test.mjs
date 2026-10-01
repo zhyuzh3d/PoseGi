@@ -341,7 +341,7 @@ function watchPending() {
     if (id === "modal-actions") return actions;
     return null;
   };
-  app.components.viewport = { maskMode: () => 0 };
+  app.components.viewport = { skeletonMode: () => false };
 
   new Function(fs.readFileSync(path.join(root, "app/features/editor.js"), "utf8"))();
   const editor = app.features.editor;

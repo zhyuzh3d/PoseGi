@@ -36,8 +36,9 @@ const internals = providers.internals;
 const store = app.services.store;
 
 const TASKS = Object.keys(app.defaults.chpTasks);
-assert.deepEqual(TASKS, ["fast", "upscale", "render"],
-  "任务表就是插件的三个场景词 —— 多的那一档 `inpaint` 本应用没有卡,不在这里");
+assert.deepEqual(TASKS, ["fast", "upscale", "render", "generate"],
+  "任务表就是插件的场景词 —— 多的那一档 `inpaint` 本应用没有卡,不在这里;"
+  + "`generate` 是 2026-10-01 插件分出来的纯文生图那一档");
 assert.ok(TASKS.indexOf("quick") < 0 && TASKS.indexOf("qwen") < 0,
   "`quick` 与 `qwen` 是 chp/1 的词,chp/2 里它们不再存在");
 
@@ -49,6 +50,8 @@ assert.ok(TASKS.indexOf("quick") < 0 && TASKS.indexOf("qwen") < 0,
   assert.equal(internals.chpTask({ task: "fast" }), "fast");
   assert.equal(internals.chpTask({ task: "upscale" }), "upscale");
   assert.equal(internals.chpTask({ task: "render" }), "render");
+  assert.equal(internals.chpTask({ task: "generate" }), "generate",
+    "新分开的纯文生图那一档也要认 —— 否则卡上选它会被悄悄改成 fast(一个带参考图的场景)");
   assert.equal(internals.chpTask({ task: "wipe" }), "fast", "不认识的词退回 fast");
   assert.equal(internals.chpTask({}), "fast");
 

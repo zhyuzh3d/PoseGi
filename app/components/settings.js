@@ -165,9 +165,10 @@
    * 说明改成"点一次会读到插件当前的帧表";这个场景在插件上压根没有 9:16 档时
    * 下拉里只有一句说明 —— 那时生图会当场报出同一件事(见 providers 的 chpGenerate)。
    *
-   * 步数不给控件、也不进下拉:它是插件内置工作流的一部分(按枚举判,越界报
-   * unsupported_steps,而那张枚举表并不在协议里公布)。hidden 输入不能省,
-   * readForm 要读得到它。 */
+   * 步数不给控件、也不进下拉,**而且根本不发出去**(2026-10-01):它是插件那台机器的
+   * 加速档案决定的(一张 4 步蒸馏 LoRA 只在它自己那档步数上成立),客户端报出去只会
+   * 把配好的加速按回默认步数。所以这里印的不是"要发的数",而是"出厂兜底";hidden 输入
+   * 不能省,readForm 要读得到它(非 CHP 协议那一栏仍然用它)。 */
   function chpFrameField() {
     var providers = app.services.providers;
     var internals = providers.internals;
@@ -175,10 +176,11 @@
     var current = providers.resolutionText(draft);
     var entries = list.length ? list.map(function (value) { return [value, value]; })
       : [[current, current || t("插件没有为这个场景公布 9:16 画幅", "The plugin publishes no 9:16 frame for this category")]];
-    return pickerRow("resolution", t("分辨率与步数", "Resolution and steps"), entries, current,
+    return pickerRow("resolution", t("分辨率", "Resolution"), entries, current,
       '<em class="range-hint">' + t(
-        list.length ? "由插件当前的场景定义决定;步数 " + draft.steps : "点「测试连接」会读取插件当前的帧表",
-        list.length ? "Decided by the plugin's current category definition; steps " + draft.steps : "Test the connection to read the plugin's current frames") +
+        list.length ? "由插件当前的帧表决定;步数由服务器上的加速配置决定" : "点「测试连接」会读取插件当前的帧表",
+        list.length ? "Decided by the plugin's current frames; the step count comes from the server's acceleration profile"
+          : "Test the connection to read the plugin's current frames") +
       "</em>") +
       '<input type="hidden" name="steps" value="' + draft.steps + '">';
   }

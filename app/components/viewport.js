@@ -168,12 +168,13 @@
     selected: "",
     selectedPart: "bone",
     mode: "pose",
-    /* 正反着色:把黑白当成一层表面着色,按 30% 混进模型原本的材质颜色。
-       判据**不是** gl_FrontFacing —— 人偶是闭合网格,从外面看每个可见三角形都是正面,
-       按那个判据渲出来是一片白,一点信息都没有。理由与参数见 正反着色 一节。 */
-    mask: null,
-    /* 建几何时有多少件真的烘出了 aSide —— 自检据此发现"烘焙静默失效" */
-    sided: 0,
+    /* 彩色骨架覆盖层:铺在 WebGL 画布上面的一层 2D canvas,画的正是"发给模型的那张
+       骨架图"(只把黑底换成透明,好让人偶透出来)。判据与参数见 骨架覆盖层 一节。 */
+    skeleton: null,
+    skeletonOn: false,
+    /* 最近一次画骨架落下了什么(几根骨头、几个关节点、几个脸点)。
+       自检与设备端诊断据此判"它真的画上去了",而不是只看函数没抛错。 */
+    skeletonStats: null,
     dragging: null,
     /* 当前按在屏幕上的手指(按下顺序无关,按 pointerId 记账)。
        双指手势只有在知道"一共有几根手指"时才敢判定,所以要自己记账。 */
@@ -254,170 +255,7 @@
       }
     };
 
-    /* 正反着色挂在这三处零件材质上:bone(常态)、head(头/手/脚这类整块就是零件的关节)、
-       selected(选中高亮)。开关只是 uniform,所以一切照旧,不开关的时候渲染结果一个字节都不变。 */
-    ensureMask().attached = 0;
-    ["bone", "head", "selected"].forEach(function (key) {
-      if (attachMask(state.assets.materials[key], state.mask)) state.mask.attached += 1;
-    });
-
     return state.assets;
-  }
-
-  /* ---------- 正反着色(shader 遮罩) ----------
-   *
-   * 用途:让"哪一半是正面"变成肉眼可见的事实,不必再靠推理 —— 第十轮的朝向结论
-   * (面朝 +Z,左 = +X,见 docs/design-3d-scene.md 5.2)本来就该交给眼睛复核一次。
-   *
-   * **它是"着色",不是"整块替换"**(2026-09-25 用户定调):把黑白当成一层表面着色
-   * **按 30% 混进模型原本的材质颜色里** —— 模型自己的明暗、体积感、主题配色全都留着,
-   * 只在前、后两半上各叠一层白/灰的倾向。用户原话:「把黑白 shader 直接作为模型的
-   * 表面着色使用,30% 透明度混合默认白模材质表面色」。
-   * 因此这里**不动光照、不动主题、也不动场景里的地面与网格** ——
-   * 早先那版是整块替换(纯白/纯灰),白到看不见人形,才需要压深背景把装饰收掉;
-   * 换过着色方式之后那套就不再需要了。
-   *
-   * 判据**不是** gl_FrontFacing:人偶是闭合网格,从外面看每一个可见三角形都是正面,
-   * 按那个判据渲出来是一片白,没有任何信息量。真正要区分的是**模型自身的前后**:
-   *   世界法线 · 角色朝向 >= 0 → 叠白,否则叠灰。
-   *
-   * 实现要点(坑都在这里):
-   *   - 全身零件**共用同一个材质**(materials.bone),所以补一次就盖住整个人。
-   *   - 顶点在 <defaultnormal_vertex> 之后取 objectNormal(关节局部)乘 modelMatrix
-   *     得到世界法线。**不能直接用 vNormal** —— 那是观察空间的,跟着相机转,
-   *     "身体的前后"就没了意义。
-   *   - 片元的混合点在 <encodings_fragment> **之后**:本机 vendor 是 r147,
-   *     这个 chunk 还叫 encodings(colorspace 是 r152 才改的名)。放在编码之后,
-   *     参与混合的两个值就都是**屏幕值** —— 白写 1.0,灰要写 0.5019 才是 #808080
-   *     (写 0.5 出来不是 128);而且"按 30% 混"与合成软件里的 30% 叠加是同一个算法。
-   *     写在编码之前会被 sRGB 抬亮到约 #bbb(与"深色主题别照背景色填"同源的坑)。
-   *   - 用 uniform 开关而不是换材质:光照、主题配色、程序都不动,随手开关。
-   *
-   * 两个锚点是**字符串匹配**,three.js 一改名就会静默失效(replace 找不到就原样返回,
-   * 不报错、照样编译通过,只是颜色一点没变)。所以自检里有一条 checkFaceMask 守着它们。 */
-  var MASK_BACK_GRAY = 0.5019;
-  /* 正反层混进材质颜色的比例(用户指定 30%)。0 = 完全不生效,1 = 整块替换。 */
-  var MASK_MIX = 0.3;
-  /* 三个档位,由底部 dock 的"正反"按钮循环切换:0 = 不显示,1 = 白/灰,2 = 红/绿。
-     同一时刻只有一组颜色生效,所以 shader 里仍然只要两个颜色 uniform ——
-     换档只是给它们重新赋值,既不重编程序、也不碰几何与姿态。 */
-  var MASK_LAYERS = [
-    null,
-    { front: [1, 1, 1], back: [MASK_BACK_GRAY, MASK_BACK_GRAY, MASK_BACK_GRAY] },
-    { front: [0.86, 0.14, 0.16], back: [0.10, 0.60, 0.22] }
-  ];
-
-  /* 正反着色只有三个量:开关、混色比例、两种颜色。
-     判定依据**不在 uniform 里** —— 每个顶点"朝前多少"已经烘进几何的 aSide 属性
-     (见 app/core/models.js 的 bakeSide),所以这里没有任何需要逐帧同步的方向量。 */
-  function buildMaskUniforms() {
-    var layer = MASK_LAYERS[1];
-    return {
-      uMaskOn: { value: 0 },
-      uMaskMix: { value: MASK_MIX },
-      uMaskFront: { value: new THREE.Vector3(layer.front[0], layer.front[1], layer.front[2]) },
-      uMaskBack: { value: new THREE.Vector3(layer.back[0], layer.back[1], layer.back[2]) }
-    };
-  }
-
-  /* 懒建(材质挂载与开关都会用到,不能各写一份,否则档位字段会漏) */
-  function ensureMask() {
-    if (!state.mask) {
-      state.mask = { uniforms: buildMaskUniforms(), attached: 0, vertex: "", fragment: "", mode: 0 };
-    }
-    return state.mask;
-  }
-
-  /* 给一个材质挂上正反着色。三次调用用的是**同一个函数体** ——
-     材质拿 onBeforeCompile.toString() 当程序缓存键,函数体一样才会共用同一个程序。 */
-  function attachMask(material, mask) {
-    if (!material || material.__maskBound) return false;
-    material.__maskBound = true;
-    var uniforms = mask.uniforms;
-    material.onBeforeCompile = function (shader) {
-      shader.uniforms.uMaskOn = uniforms.uMaskOn;
-      shader.uniforms.uMaskMix = uniforms.uMaskMix;
-      shader.uniforms.uMaskFront = uniforms.uMaskFront;
-      shader.uniforms.uMaskBack = uniforms.uMaskBack;
-      /* 判定量是几何自带的 aSide —— 每个顶点在**静止姿态**下朝前的程度:
-         正数 = 正面色,负数 = 反面色。它只跟几何有关,与姿态、与相机都无关,
-         所以这里既不需要世界矩阵,也没有任何要逐帧同步的方向量 —— 像一张贴图。
-         (从前传的是"世界法线 + 一个角色朝向 uniform":世界法线跟着关节转、
-          角色朝向不跟着关节转,于是**一转动关节,颜色就在零件表面流动**。) */
-      shader.vertexShader = "attribute float aSide;\nvarying float vSide;\n" + shader.vertexShader.replace(
-        "#include <defaultnormal_vertex>",
-        "#include <defaultnormal_vertex>\n\tvSide = aSide;"
-      );
-      shader.fragmentShader = "varying float vSide;\n"
-        + "uniform float uMaskOn;\nuniform float uMaskMix;\nuniform vec3 uMaskFront;\nuniform vec3 uMaskBack;\n"
-        + shader.fragmentShader.replace(
-          "#include <encodings_fragment>",
-          "#include <encodings_fragment>\n"
-          + "\tif ( uMaskOn > 0.5 ) {\n"
-          + "\t\tvec3 maskColor = mix( uMaskBack, uMaskFront, step( 0.0, vSide ) );\n"
-          + "\t\tgl_FragColor.rgb = mix( gl_FragColor.rgb, maskColor, uMaskMix );\n"
-          + "\t}"
-        );
-      /* 留一份编译进程序的源码:自检据此判断"注入到底落上了没有"。
-         replace 打空锚点时这里就不会有我们的那行 —— 这是唯一能发现它静默失效的办法。 */
-      mask.vertex = shader.vertexShader;
-      mask.fragment = shader.fragmentShader;
-    };
-    material.needsUpdate = true;
-    return true;
-  }
-
-  /* 这里原来是 syncMaskDirection():每帧从 hips 的世界矩阵里取"角色朝向"喂给 shader。
-     现在整块不需要了 —— 判定量是几何自带的 aSide(建几何时按静止姿态烘好,
-     见 buildRig 与 app/core/models.js 的 bakeSide),它只跟几何有关。
-     少一个逐帧同步点,也就少一类错法:从前"世界法线跟着关节转、角色朝向不跟",
-     于是**转动任何单个关节,那个零件表面的颜色就会流动**(抬手臂就换面)。
-     烘成顶点属性之后,颜色与姿态彻底解耦 —— 无论转关节、转整体、绕视角,都不再动。 */
-
-  /* mode: 0 = 不显示,1 = 白/灰,2 = 红/绿。返回实际生效的档位。 */
-  function setFrontBackMask(mode) {
-    var next = (mode === 1 || mode === 2) ? mode : 0;
-    var mask = ensureMask();
-    mask.mode = next;
-    mask.uniforms.uMaskOn.value = next > 0 ? 1 : 0;
-    var layer = MASK_LAYERS[next];
-    if (layer) {
-      mask.uniforms.uMaskFront.value.set(layer.front[0], layer.front[1], layer.front[2]);
-      mask.uniforms.uMaskBack.value.set(layer.back[0], layer.back[1], layer.back[2]);
-    }
-    /* 开关与配色都是 uniform,不是不同的 #define,所以**不需要**重编程序。
-       也**不碰场景**(背景、地面、网格、影子一律保持原样):正反层只混 30%,
-       模型自己的明暗、体积感、主题配色都还在,早先那套"压深背景 + 收掉地面"
-       是为整块替换(纯白/纯灰)服务的,现在不成立了。 */
-    return next;
-  }
-
-  /* 当前档位(0 / 1 / 2)—— dock 按钮据此循环到下一档 */
-  function maskMode() {
-    return state.mask ? state.mask.mode : 0;
-  }
-
-  function frontBackMask() {
-    return maskMode() > 0;
-  }
-
-  /* 诊断出口:给自检与设备端页面状态用 */
-  function maskInfo() {
-    if (!state.mask) return null;
-    return {
-      on: frontBackMask(),
-      /* 档位 0 = 不显示、1 = 白/灰、2 = 红/绿 */
-      mode: state.mask.mode,
-      attached: state.mask.attached,
-      sided: state.sided,
-      compiled: state.mask.fragment.length > 0,
-      vertex: state.mask.vertex,
-      fragment: state.mask.fragment,
-      /* axis 是"正面"的基准轴,在**骨架空间**里恒为 +Z —— 它是常量,不是某个实时的
-         世界方向(判定值烘在几何的 aSide 上),报出来只是让自检确认基准没被改坏。 */
-      axis: [0, 0, 1],
-      mix: state.mask.uniforms.uMaskMix.value
-    };
   }
 
   /* 换主题只改颜色,不重建骨架。环境球也**不重建** —— 它的三个颜色是 uniform,
@@ -626,14 +464,8 @@
     state.objects = {};
     state.parts = {};
     state.pickables = [];
-    state.sided = 0;
     state.figure = figureDefinition();
     var figure = state.figure;
-    /* 正反着色要"以当前站姿为基准、定下来就不再变",所以这里先算出整棵骨架在
-       **静止姿态**下的朝向,建每个零件的几何时按关节取用(见 models.geometry 的 basis)。
-       用 rig 的纯数学算,不去读场景里的 matrixWorld —— 几何必须先在骨架摆好之前建出来。
-       rest 已经含 twist(把掌心拧到朝前的那一次),所以基准正是"现在这个站姿"。 */
-    var restFrames = app.rig.frames(app.rig.defaultAngles());
 
     app.rig.joints.forEach(function (joint) {
       var object = new THREE.Object3D();
@@ -669,9 +501,7 @@
          的关节)由 highlight 按选中态决定,与"拖动算旋转还是移动"是两套判定 ——
          两者曾经共用同一个判定,于是"改交互"顺手把配色也改掉。
          这里原来还留着一份 isJointLook/material 的计算结果,算完从没被用过,已删。 */
-      var rest = restFrames[joint.name];
-      var geometry = app.models.geometry(figure.id, joint.name, rest && rest.orientation);
-      if (geometry && geometry.getAttribute("aSide")) state.sided += 1;
+      var geometry = app.models.geometry(figure.id, joint.name);
       var bone = geometry
         ? new THREE.Mesh(geometry, state.assets.materials.bone)
         : new THREE.Object3D();
@@ -1389,6 +1219,192 @@
     if (hint) hint.hidden = true;
   }
 
+  /* ---------- 彩色骨架覆盖层 ----------
+   *
+   * 屏上这一层与**发给模型的那张参考图是同一个渲染器**(app/core/skeleton.js):
+   * 颜色、线宽、关节点、脸点阵全部由那边一套参数决定,这里只管"投影"与"落在哪块画布上"。
+   * 于是"屏幕上看到的"就是"模型看到的" —— 一眼能判它是不是一张合格的 pose 控制图,
+   * 不必先生一张图、再从成图往回猜(彩骨与素模的差别正是这一轮的结论,见 skeleton.js 头注释)。
+   *
+   * 三件事必须写在明面上:
+   *   1. **它不吃指针事件**(CSS pointer-events: none)。它是显示层、不是控件;
+   *      关节拖拽、空白绕转、双指平移全部原样穿到下面的 WebGL 画布上 ——
+   *      用户 2026-10-01 的原话:「仍然可以拖拽节点摆姿势」。
+   *   2. **透明底**。它铺在实时 3D 视口上面,拿黑底铺一层就等于把人偶盖掉,
+   *      那样"骨架对不对"与"姿势对不对"就没法一起看了。
+   *   3. 用的是**同一台相机的同一次取景**,只是换算到屏幕这块画布上
+   *      (为什么这不需要碰相机,见 app/core/utils.js 的 placeNdc)。覆盖层的宽高比就是屏幕
+   *      自己,所以骨线与人偶**逐像素对齐**。
+   *      **屏上这一层与发出去的那张图不是同一个宽高比**:参考图是 9:16,还要上下各裁 28 行
+   *      (放大 1080/1024 ≈ 5.5%)。所以它是"同一具骨架、同一次视角、同一种长相"的预览,
+   *      不是那张图的逐像素复刻 —— 人偶按屏幕取景、骨架跟着人偶走,才看得出姿势对不对
+   *      (把 9:16 那块缩进屏幕里反而会缩一圈,骨线与人偶对不上)。
+   *
+   * 骨架只画 14 根骨头(见 skeleton.js 的 carriers):两条腿、两条手臂、脖子、头。
+   * 手与脚不画 —— 模型认的是那 18 个键位,多一根反而会被算进姿态里
+   * (这与"参考图"那条路是同一个取舍,不是两套规则)。
+   */
+
+  /* 覆盖层的分辨率:跟着容器与 devicePixelRatio 走,与 WebGL 画布同一个上限(2)。
+     只在尺寸真变了才写 .width/.height —— 写一次就会清空画布,没必要每帧白清一遍。 */
+  function resizeOverlay() {
+    if (!state.skeleton || !state.container) return;
+    var ratio = Math.min(window.devicePixelRatio || 1, 2);
+    var width = Math.max(1, Math.round(state.container.clientWidth * ratio));
+    var height = Math.max(1, Math.round(state.container.clientHeight * ratio));
+    if (state.skeleton.width !== width) state.skeleton.width = width;
+    if (state.skeleton.height !== height) state.skeleton.height = height;
+  }
+
+  /* 关节原点(或骨杆末端)的**世界位置** —— 与 screenOf 取的是同一个点,
+     区别只是不落到屏幕上:覆盖层与参考图那块的画布尺寸都不是 clientWidth。
+     骨杆末端取的是 localToWorld(0, length, 0):关节局部 +Y 就是那根骨头的走向,
+     所以"肘"是 upperArm 的末端、"膝"是 thigh 的末端、"踝"是 shin 的末端。 */
+  function jointPoint(name, atTail) {
+    var object = state.objects[name];
+    if (!object) return null;
+    var joint = app.rig.byName(name);
+    return atTail && joint && joint.length > 0
+      ? object.localToWorld(new THREE.Vector3(0, joint.length, 0))
+      : object.getWorldPosition(new THREE.Vector3());
+  }
+
+  /* 要投影的骨头:直接取 skeleton 的接头表去重(**单一出处** —— 那边加一根骨头,
+     这里不用跟着改)。head 单独补上:它不是"某个键位的接头",而是 kp[0]/14/15/16/17
+     的出处(见 skeleton.keypoints)。 */
+  function boneNames() {
+    var names = ["head"];
+    app.skeleton.carriers.forEach(function (carrier) {
+      if (!carrier) return;
+      if (names.indexOf(carrier[0]) < 0) names.push(carrier[0]);
+    });
+    return names;
+  }
+
+  /* 世界点 → 取景窗口里的像素。窗口的宽高比**可以与本相机不同**:
+     换算规则在 app.utils.placeNdc 里(纯算术,有自己的测试),这里只负责取数。 */
+  function projectIn(point, windowWidth, windowHeight) {
+    scratchB.copy(point).project(state.camera);
+    return app.utils.placeNdc({ x: scratchB.x, y: scratchB.y }, state.camera.aspect, {
+      windowWidth: windowWidth, windowHeight: windowHeight
+    });
+  }
+
+  /* 相机绕竖直轴的方位角(度)。脸点阵按它决定侧脸压多窄 ——
+     正面看是完整的 68 点,完全侧过去压到 30%(见 skeleton.facePoints)。
+     这里与参考图那条路用的是**同一个**方位角,所以屏上看到的侧脸就是发出去的那张脸。 */
+  function cameraAzimuth() {
+    return view().azimuth * 180 / Math.PI;
+  }
+
+  /* 投影出这具骨架的线段。options:
+   *   width / height  取景窗口的像素(不给就取屏幕那块画布);aspect 就是它的宽高比
+   *   aspect          取景用的宽高比,不给就按窗口本身的宽高比
+   *   offsetX/offsetY 目标画布相对这个窗口的偏移(= 居中裁切去掉的那部分)
+   * 返回 [{ joint, a: [x, y], b: [x, y] }],格式由 skeleton.js 那边的 carriers 定义。
+   * **骨架齐不齐由下游判**:缺骨头时 skeleton.keypoints 返回 null,那边画一张空白图,
+   * 而不是这边少返回几根、那边画半个人(规则只有一处,见 skeleton.js 的 REQUIRED_BONES)。 */
+  function poseSegments(options) {
+    var config = options || {};
+    var width = Number(config.width) > 0 ? Math.round(Number(config.width)) : 0;
+    var height = Number(config.height) > 0 ? Math.round(Number(config.height)) : 0;
+    if (!ready() || !state.camera) return [];
+    if (!width) width = Math.max(1, state.container ? state.container.clientWidth : 1);
+    if (!height) height = Math.max(1, state.container ? state.container.clientHeight : 1);
+    var offsetX = Number(config.offsetX) || 0;
+    var offsetY = Number(config.offsetY) || 0;
+    var segments = [];
+    boneNames().forEach(function (name) {
+      var origin = jointPoint(name, false);
+      var tail = jointPoint(name, true);
+      if (!origin || !tail) return;
+      var a = projectIn(origin, width, height);
+      var b = projectIn(tail, width, height);
+      segments.push({ joint: name, a: [a.x - offsetX, a.y - offsetY], b: [b.x - offsetX, b.y - offsetY] });
+    });
+    return segments;
+  }
+
+  /* 参考图:把这具骨架画成"发给模型的那张图"。
+     签名与 captureAt 对齐(同一个画布尺寸 + 同一个 frame),因为两者本就是同一件事的
+     两种实现:captureAt 交出去的是人偶的渲染图,这里交出去的是同一台相机、同一个取景下的骨架图。
+     返回值形状也与 captureAt 一致({ dataUrl, imageBase64, mime, width, height }),
+     所以生图链路那侧一个字都不用改。 */
+  function skeletonImage(canvasWidth, canvasHeight, encoding) {
+    var options = encoding || {};
+    var width = Math.max(64, Math.round(Number(canvasWidth) || 576));
+    var height = Math.max(64, Math.round(Number(canvasHeight) || 1080));
+    var offsetX = 0, offsetY = 0, outWidth = width, outHeight = height;
+    var frame = options.frame;
+    if (frame && Number(frame.width) > 0 && Number(frame.height) > 0) {
+      var box = app.utils.centerCrop(width, height, Number(frame.width), Number(frame.height));
+      offsetX = box.x;
+      offsetY = box.y;
+      outWidth = box.outWidth;
+      outHeight = box.outHeight;
+    }
+    var image = app.skeleton.image(poseSegments({
+      width: width, height: height, offsetX: offsetX, offsetY: offsetY
+    }), {
+      width: outWidth, height: outHeight,
+      azimuth: cameraAzimuth(),
+      mime: options.format,
+      quality: options.quality
+    });
+    /* 这一张到底画了点什么,顺手记下来:自检与设备端诊断据此判"它是不是真画上去了",
+       而不是只判"函数没抛错"。 */
+    state.skeletonStats = image.stats;
+    return image;
+  }
+
+  /* 覆盖层每帧重画。开销是"清一块画布 + 17 条线 + 34 个关节点 + 68 个脸点",
+     比同一帧里那次 WebGL 渲染轻,所以不做脏标记 —— 相机有阻尼、姿态随时在变,
+     真要判"这一帧变没变"反而更贵。关着的时候一次都不画(头一行就返回)。 */
+  function paintOverlay() {
+    if (!state.skeletonOn || !state.skeleton || state.disposed) return;
+    if (!ready()) return;
+    var width = state.skeleton.width, height = state.skeleton.height;
+    state.skeletonStats = app.skeleton.paint(state.skeleton.getContext("2d"),
+      poseSegments({ width: width, height: height }),
+      { width: width, height: height, azimuth: cameraAzimuth(), background: null });
+  }
+
+  /* 开关:开的时候**立刻画一帧**(不必等下一个动画帧,免得"点了没反应"),
+     关的时候把画布擦干净 —— 光把类名摘掉会留下一层静态骨痕(layer 还在,只是不重画了)。 */
+  function setSkeletonMode(on) {
+    state.skeletonOn = !!on;
+    if (state.skeleton) {
+      state.skeleton.classList.toggle("is-on", state.skeletonOn);
+      var context = state.skeleton.getContext("2d");
+      if (state.skeletonOn) paintOverlay();
+      else {
+        context.clearRect(0, 0, state.skeleton.width, state.skeleton.height);
+        state.skeletonStats = null;
+      }
+    }
+    return state.skeletonOn;
+  }
+
+  function skeletonMode() { return state.skeletonOn; }
+
+  /* 诊断出口:自检与设备端页面状态读它 ——
+     报的是"挂上了没、开没开、多大、最近一帧画了几根骨头几个脸点、缺不缺骨头"。 */
+  function skeletonInfo() {
+    var canvas = state.skeleton;
+    var segments = ready() ? poseSegments({}) : [];
+    var landmarks = segments.length ? app.skeleton.keypoints(segments) : null;
+    return {
+      on: state.skeletonOn,
+      mounted: !!canvas,
+      width: canvas ? canvas.width : 0,
+      height: canvas ? canvas.height : 0,
+      /* 投影出几根骨头、下一层能不能认全(认不全就画不出一张合格的骨架) */
+      segments: segments.length,
+      bones: landmarks ? landmarks.length : 0,
+      stats: state.skeletonStats || null
+    };
+  }
+
   function resize() {
     if (!state.renderer || !state.container) return;
     var width = Math.max(1, state.container.clientWidth);
@@ -1397,6 +1413,7 @@
     state.renderer.setSize(width, height, false);
     state.camera.aspect = width / height;
     state.camera.updateProjectionMatrix();
+    resizeOverlay();
   }
 
   function onContextLost(event) {
@@ -1455,6 +1472,7 @@
        逐帧同步回人物会把平移抹掉,也会让绕转起点变得不可预测。 */
     if (state.controls) state.controls.update();
     state.renderer.render(state.scene, state.camera);
+    paintOverlay();
   }
 
   /* ---------- 对外接口 ---------- */
@@ -1477,6 +1495,18 @@
       canvas.setAttribute("aria-label", text("3D 造型视口", "3D posing viewport"));
       state.container.appendChild(canvas);
       state.canvas = canvas;
+
+      /* 骨架覆盖层:紧跟在 WebGL 画布后面挂上去,于是两者的定位基准完全相同
+         (都是 absolute 铺满 .stage-viewport)。层级与指针事件一律由 CSS 定 ——
+         这一层只负责显示,不接任何触摸(理由见 彩色骨架覆盖层 一节)。 */
+      if (!state.skeleton) {
+        var overlay = document.createElement("canvas");
+        overlay.className = "stage-skeleton";
+        overlay.setAttribute("aria-hidden", "true");
+        state.container.appendChild(overlay);
+        state.skeleton = overlay;
+      }
+      state.skeleton.classList.toggle("is-on", state.skeletonOn);
 
       var renderer = new THREE.WebGLRenderer({
         canvas: canvas,
@@ -1860,6 +1890,9 @@
     state.renderer = null;
     if (state.canvas && state.canvas.parentNode) state.canvas.parentNode.removeChild(state.canvas);
     state.canvas = null;
+    if (state.skeleton && state.skeleton.parentNode) state.skeleton.parentNode.removeChild(state.skeleton);
+    state.skeleton = null;
+    state.skeletonStats = null;
     state.available = false;
   }
 
@@ -1871,11 +1904,14 @@
     setSelectedJoint: setSelectedJoint,
     setMode: setMode,
     mode: function () { return state.mode; },
-    /* 正反着色:三档循环(无 / 白灰 / 红绿),纯显示视图,不碰姿态数据、不碰光照与主题 */
-    setFrontBackMask: setFrontBackMask,
-    frontBackMask: frontBackMask,
-    maskMode: maskMode,
-    maskInfo: maskInfo,
+    /* 彩色骨架:屏上覆盖层(纯显示视图 —— 不吃指针事件、不碰姿态、不碰光照与主题)。
+       poseSegments / skeletonImage 是把"发给模型的那张骨架图"投影出来的两个出口:
+       前者给屏上那层,后者给生图链路。 */
+    setSkeletonMode: setSkeletonMode,
+    skeletonMode: skeletonMode,
+    skeletonInfo: skeletonInfo,
+    poseSegments: poseSegments,
+    skeletonImage: skeletonImage,
     setTheme: function (name) {
       themeName = name === "dark" ? "dark" : "light";
       paintTheme();
