@@ -12,7 +12,7 @@
   /* 与 haminn.json 的 version.name 必须一致(tests/rig.test.mjs 守着)。
      上一轮发版只改了 haminn.json(code 3 / 0.1.1),这里漏了 —— 于是界面上
      顶着「v0.1.0」而装上去的包里写着 0.1.1。以 haminn.json 为准,这里跟上。 */
-  app.version = "0.1.19";
+  app.version = "0.1.22";
 
   /* 主题锁:本应用不做主题切换(设置里没有这一项),一律深色。
      2026-09-25 用户决定 —— 之前跟着系统 prefers-color-scheme 走,新设备系统非深色
@@ -110,17 +110,12 @@
        格式)/ claude / gemini(2026-09-26 用户要求支持这几家)。
        借生图连接那条路一定是 chp —— 生图只有 CHP 卡片共用一套地址。 */
     translate: { enabled: false, protocol: "chp", endpoint: "", apiKey: "", model: "", customHeaders: "" },
-    /* 新建作品时的默认角色描述(用户 2026-09-25 定:默认「一个科幻女战士」)。
-       中文界面给中文、英文界面给英文 —— 它是提示词内容,不是界面文案,
-       所以要跟着界面语言走。放在这里是因为"添加作品"表单与首次启动那次弹窗共用一份。
-       2026-09-26 用户要求再自带一句:**参考图只作姿势参考**。参考图是 3D 小人的渲染,
-       模型只该拿它的姿势与构图,不该把那个"木头小人"的外形、发型、服饰也画出来。
-       把它写进默认描述而不是在请求里偷偷追加:它就在输入框里,用户看得见、改得掉。
-       改这句只动这一处 —— "添加作品"表单与 newWork 都读它。 */
+    /* 新建作品时的默认角色描述。中文界面给中文、英文界面给配套英文；
+       它是可编辑的提示词内容,不是界面文案。"添加作品"表单与 newWork 共用这一份。 */
     newWork: {
       prompt: {
-        zh: "一个科幻女战士。参考图只作姿势参考,不要照抄它的人物外形,发型和服饰。",
-        en: "a sci-fi female warrior. Use the reference image for pose only. Do not copy its figure's look, hairstyle or clothing."
+        zh: "一个正在跳舞的中国美女，健康体型，平视。",
+        en: "A beautiful Chinese woman dancing, with a healthy physique, viewed at eye level."
       }
     },
     /* CHP(ComfyUI Haminn Protocol)的连接是**一套**:地址、密码、自定义头。

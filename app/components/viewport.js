@@ -89,6 +89,13 @@
      给大了(上一版拿零件包围球半径 ×1.5,前臂算出 0.20)整条腿旁边的空地都算命中。 */
   var BONE_RADIUS = 0.030;
 
+  /* 正反显示只提供用户原先使用的黑白模式。侧向值在静止几何上烘焙,
+     Shader 只把白/灰以 30% 混入原材质,保留光照与主题颜色。 */
+  var MASK_BACK_GRAY = 0.5019;
+  var MASK_MIX = 0.3;
+  /* 世界 y=0 是人偶初始站姿的脚底平面,相机不得低于它。 */
+  var CAMERA_GROUND_Y = 0;
+
   /* 拖连接杆时单次移动最多转多少弧度,避免手指一动就把关节甩飞 */
   var TURN_LIMIT = 0.32;
   /* 力臂的下限(米)。小人在屏幕上只有一屏高(约 330 像素/米),而手指一拖就是
@@ -175,6 +182,9 @@
     /* 最近一次画骨架落下了什么(几根骨头、几个关节点、几个脸点)。
        自检与设备端诊断据此判"它真的画上去了",而不是只看函数没抛错。 */
     skeletonStats: null,
+    /* 正反黑白材质遮罩,与彩色骨架 canvas 覆盖层相互独立。 */
+    mask: null,
+    sided: 0,
     dragging: null,
     /* 当前按在屏幕上的手指(按下顺序无关,按 pointerId 记账)。
        双指手势只有在知道"一共有几根手指"时才敢判定,所以要自己记账。 */
@@ -255,7 +265,78 @@
       }
     };
 
+    ensureMask().attached = 0;
+    ["bone", "head", "selected"].forEach(function (key) {
+      if (attachMask(state.assets.materials[key], state.mask)) state.mask.attached += 1;
+    });
+
     return state.assets;
+  }
+
+  function buildMaskUniforms() {
+    return {
+      uMaskOn: { value: 0 },
+      uMaskMix: { value: MASK_MIX },
+      uMaskFront: { value: new THREE.Vector3(1, 1, 1) },
+      uMaskBack: { value: new THREE.Vector3(MASK_BACK_GRAY, MASK_BACK_GRAY, MASK_BACK_GRAY) }
+    };
+  }
+
+  function ensureMask() {
+    if (!state.mask) state.mask = { uniforms: buildMaskUniforms(), attached: 0, vertex: "", fragment: "", mode: 0 };
+    return state.mask;
+  }
+
+  /* 每个材质用同一回调体,让 three.js 可以共享同一份编译程序。 */
+  function attachMask(material, mask) {
+    if (!material || material.__maskBound) return false;
+    material.__maskBound = true;
+    var uniforms = mask.uniforms;
+    material.onBeforeCompile = function (shader) {
+      shader.uniforms.uMaskOn = uniforms.uMaskOn;
+      shader.uniforms.uMaskMix = uniforms.uMaskMix;
+      shader.uniforms.uMaskFront = uniforms.uMaskFront;
+      shader.uniforms.uMaskBack = uniforms.uMaskBack;
+      shader.vertexShader = "attribute float aSide;\nvarying float vSide;\n" + shader.vertexShader.replace(
+        "#include <defaultnormal_vertex>",
+        "#include <defaultnormal_vertex>\n\tvSide = aSide;"
+      );
+      shader.fragmentShader = "varying float vSide;\n"
+        + "uniform float uMaskOn;\nuniform float uMaskMix;\nuniform vec3 uMaskFront;\nuniform vec3 uMaskBack;\n"
+        + shader.fragmentShader.replace(
+          "#include <encodings_fragment>",
+          "#include <encodings_fragment>\n"
+          + "\tif ( uMaskOn > 0.5 ) {\n"
+          + "\t\tvec3 maskColor = mix( uMaskBack, uMaskFront, step( 0.0, vSide ) );\n"
+          + "\t\tgl_FragColor.rgb = mix( gl_FragColor.rgb, maskColor, uMaskMix );\n"
+          + "\t}"
+        );
+      mask.vertex = shader.vertexShader;
+      mask.fragment = shader.fragmentShader;
+    };
+    material.needsUpdate = true;
+    return true;
+  }
+
+  function setFrontBackMask(mode) {
+    var next = Number(mode) === 1 ? 1 : 0;
+    var mask = ensureMask();
+    mask.mode = next;
+    mask.uniforms.uMaskOn.value = next ? 1 : 0;
+    return next;
+  }
+
+  function maskMode() { return state.mask ? state.mask.mode : 0; }
+
+  function frontBackMask() { return maskMode() > 0; }
+
+  function maskInfo() {
+    if (!state.mask) return null;
+    return {
+      on: frontBackMask(), mode: state.mask.mode, attached: state.mask.attached, sided: state.sided,
+      compiled: state.mask.fragment.length > 0, vertex: state.mask.vertex, fragment: state.mask.fragment,
+      axis: [0, 0, 1], mix: state.mask.uniforms.uMaskMix.value
+    };
   }
 
   /* 换主题只改颜色,不重建骨架。环境球也**不重建** —— 它的三个颜色是 uniform,
@@ -464,8 +545,10 @@
     state.objects = {};
     state.parts = {};
     state.pickables = [];
+    state.sided = 0;
     state.figure = figureDefinition();
     var figure = state.figure;
+    var restFrames = app.rig.frames(app.rig.defaultAngles());
 
     app.rig.joints.forEach(function (joint) {
       var object = new THREE.Object3D();
@@ -501,7 +584,9 @@
          的关节)由 highlight 按选中态决定,与"拖动算旋转还是移动"是两套判定 ——
          两者曾经共用同一个判定,于是"改交互"顺手把配色也改掉。
          这里原来还留着一份 isJointLook/material 的计算结果,算完从没被用过,已删。 */
-      var geometry = app.models.geometry(figure.id, joint.name);
+      var rest = restFrames[joint.name];
+      var geometry = app.models.geometry(figure.id, joint.name, rest && rest.orientation);
+      if (geometry && geometry.getAttribute("aSide")) state.sided += 1;
       var bone = geometry
         ? new THREE.Mesh(geometry, state.assets.materials.bone)
         : new THREE.Object3D();
@@ -1470,7 +1555,10 @@
     if (!ready() || document.hidden) return;
     /* 这里**不碰** controls.target:目标只能由"平移"和"适配屏幕"改(规则 1/3),
        逐帧同步回人物会把平移抹掉,也会让绕转起点变得不可预测。 */
-    if (state.controls) state.controls.update();
+    if (state.controls) {
+      state.controls.update();
+      keepCameraAboveGround();
+    }
     state.renderer.render(state.scene, state.camera);
     paintOverlay();
   }
@@ -1544,7 +1632,8 @@
       state.controls.zoomSpeed = 0.9;
       state.controls.minDistance = 0.7;
       state.controls.maxDistance = 9;
-      state.controls.maxPolarAngle = Math.PI * 0.495;
+      /* 允许相机绕到目标点下方仰视;底部边界由 keepCameraAboveGround 的世界 y=0 约束负责。 */
+      state.controls.maxPolarAngle = Math.PI;
       state.controls.update();
 
       /* 建完控件先取一次景:屏幕多高都让小人恰好占满,不靠写死的相机距离 */
@@ -1670,7 +1759,17 @@
     var damping = state.controls.enableDamping;
     state.controls.enableDamping = false;
     state.controls.update();
+    keepCameraAboveGround();
     state.controls.enableDamping = damping;
+  }
+
+  /* OrbitControls 只限制相机到目标的距离与俯仰角,双指平移或装入旧视口仍可能把
+     相机带到地面以下。碰到脚底平面时只抬相机并重新看向原目标,不把取景中心一起带走。 */
+  function keepCameraAboveGround() {
+    if (!state.camera || !state.controls || state.camera.position.y >= CAMERA_GROUND_Y) return false;
+    state.camera.position.y = CAMERA_GROUND_Y;
+    state.camera.lookAt(state.controls.target);
+    return true;
   }
 
   function renderFrame() {
@@ -1805,6 +1904,7 @@
     var damping = state.controls.enableDamping;
     state.controls.enableDamping = false;
     state.controls.update();
+    keepCameraAboveGround();
     state.controls.enableDamping = damping;
     return true;
   }
@@ -1910,6 +2010,10 @@
     setSkeletonMode: setSkeletonMode,
     skeletonMode: skeletonMode,
     skeletonInfo: skeletonInfo,
+    setFrontBackMask: setFrontBackMask,
+    maskMode: maskMode,
+    frontBackMask: frontBackMask,
+    maskInfo: maskInfo,
     poseSegments: poseSegments,
     skeletonImage: skeletonImage,
     setTheme: function (name) {

@@ -662,7 +662,7 @@
   /* 新作品:先把当前这件存好,再开一份空的。
      标题留空就当场取「未命名作品 N」—— 不拖到第一次保存时才取名,
      因为"添加作品"之后它就该出现在作品列表里,哪怕还一个字都没写。
-     角色描述不传就取默认值(一个科幻女战士);显式传空串表示用户清空了它,照样允许。 */
+     角色描述不传就取默认值;显式传空串表示用户清空了它,照样允许。 */
   async function newWork(title, prompt) {
     await flush();
     var value = prompt === undefined || prompt === null ? defaultPrompt() : String(prompt);

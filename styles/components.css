@@ -272,6 +272,7 @@
 }
 .switch input:checked + .switch-track { background: var(--accent); }
 .switch input:checked ~ .switch-thumb { transform: translateX(18px); }
+.render-inspect-switch { cursor: pointer; }
 
 /* ---------- 中英翻译(软件设置里那一行) ---------- */
 .translate-card {

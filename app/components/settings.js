@@ -804,7 +804,7 @@
         helpLine(fa("fa-solid", "screwdriver-wrench"), t("工具", "Tools"),
           t("「工具」里两件事:左右镜像(左右姿势整体翻转)、相机归位。", "Tools holds two things: Mirror (flip the pose left to right) and Reset view.")),
         helpLine(fa("fa-solid", "palette"), t("渲染", "Render"),
-          t("「渲染」是给模型看的检查层:无 / 正反黑白 / 正反红绿。开了之后正面与背面用不同颜色区分,方便确认朝向对不对。它只改变显示,不改变姿态,也不会进成图。", "Render is a check layer for the model: off, front-back grey, front-back red-green. It tints the two sides differently so you can confirm the facing. It only changes the display — never the pose, never the generated image."))
+          t("「渲染」里可以分别打开正反黑白和发给模型的彩色骨架+脸点阵,两层也能同时显示。它们只用于检查,不改变姿态,也不会进成图。", "Render can show front-back black and white and the colour skeleton with face points sent to the model. Both layers can be shown together. They are for inspection only and never change the pose or generated image."))
       ]) +
       helpSection(t("出图", "Generation"), [
         helpLine(fa("fa-solid", "wand-magic-sparkles"), t("生成", "Generate"),

@@ -68,6 +68,17 @@
     };
   }
 
+  function checkCameraGround() {
+    var viewport = app.components.viewport;
+    if (!viewport.available()) return { ok: true, detail: "3D 视口不可用,相机高度一项跳过(见 webgl)" };
+    var camera = viewport.cameraState();
+    var height = camera && camera.position && Number(camera.position[1]);
+    return {
+      ok: isFinite(height) && height >= -1e-6,
+      detail: isFinite(height) ? "相机高度 y=" + height.toFixed(3) + "（地面下限 0）" : "读不到相机高度"
+    };
+  }
+
   /* "画布必须真的能被点中" —— 这一条守的是一整类 bug。
      只要有任何一个透明的全屏元素压在舞台上面(典型是"忘了处理 hidden 属性"的提示层),
      画布就收不到任何触摸:表现是"整个 3D 区域完全点不动",而且不报错、不白屏、截图也看不出来。
@@ -188,6 +199,37 @@
     return { ok: problems.length === 0, detail: problems.length ? problems.join(";") : detail };
   }
 
+  /* 正反黑白检查 Shader 注入锚点、材质挂载与几何侧向属性,并确认开关拨得动且
+     会还原原状态。着色是可选显示层,这里不触发成图或改变人偶姿势。 */
+  function checkFaceMask() {
+    var viewport = app.components.viewport;
+    if (!viewport.available()) return { ok: true, detail: "3D 视口不可用,正反显示一项一并跳过(见 webgl)" };
+    var problems = [];
+    var info = typeof viewport.maskInfo === "function" ? viewport.maskInfo() : null;
+    var physical = window.THREE && window.THREE.ShaderLib ? window.THREE.ShaderLib.physical : null;
+    if (!physical) problems.push("拿不到 THREE.ShaderLib.physical");
+    else {
+      if (physical.vertexShader.indexOf("#include <defaultnormal_vertex>") < 0) problems.push("顶点锚点 defaultnormal_vertex 不在了");
+      if (physical.fragmentShader.indexOf("#include <encodings_fragment>") < 0) problems.push("片元锚点 encodings_fragment 不在了");
+    }
+    if (!info) problems.push("视口没有暴露正反黑白显示");
+    else {
+      if (!info.attached) problems.push("没有材质挂上正反黑白显示");
+      if (!info.sided) problems.push("模型几何没有烘出 aSide 朝向属性");
+      if (info.compiled) {
+        if (info.vertex.indexOf("vSide = aSide") < 0) problems.push("顶点 Shader 注入没落上");
+        if (info.fragment.indexOf("uMaskFront, step(") < 0) problems.push("片元 Shader 注入没落上");
+      }
+      var beforeMode = viewport.maskMode();
+      var cycled = viewport.setFrontBackMask(beforeMode ? 0 : 1);
+      if (cycled === beforeMode) problems.push("正反黑白开关拨不动");
+      viewport.setFrontBackMask(beforeMode);
+    }
+    var detail = info ? info.attached + " 处材质," + info.sided + " 件几何带 aSide,档位 " + info.mode
+      + (info.compiled ? ",Shader 已编译" : ",等待首次渲染编译 Shader") : "";
+    return { ok: problems.length === 0, detail: problems.length ? problems.join(";") : detail };
+  }
+
   /* 数一数画面上出现了几种**肢体颜色**:按色板逐个对色,而不是数"有没有非黑像素" ——
      后者在只画出一根线的时候也是绿的,断不出"整张图只画了一半"。
      对的是精确值:线宽有 18 像素,芯里那些像素就是 strokeStyle 原样写下去的字节
@@ -246,9 +288,11 @@
     report.checks.rig = checkRig();
     report.checks.three = checkThree();
     report.checks.webgl = checkWebgl();
+    report.checks.cameraGround = checkCameraGround();
     report.checks.stageHit = checkStageHit();
     report.checks.statusLine = checkStatusLine();
     report.checks.skeleton = checkSkeleton();
+    report.checks.faceMask = checkFaceMask();
     report.checks.engine = checkEngine();
     report.checks.bridge = await checkBridge();
     Object.keys(report.checks).forEach(function (name) {

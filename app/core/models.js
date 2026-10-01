@@ -54,8 +54,9 @@
     return index ? index.length / 3 : 0;
   }
 
-  /* 按 id + 关节名取几何体,取过一次就留下 —— 切换造型时会来回取同一批几何。 */
-  function geometry(id, partName) {
+  /* 按 id + 关节名取几何体,取过一次就留下 —— 切换造型时会来回取同一批几何。
+     basis 可选:传了就在几何上烘一条 aSide 顶点属性,供正反黑白显示用。 */
+  function geometry(id, partName, basis) {
     var key = String(id || "") + "/" + String(partName || "");
     if (cache[key]) return cache[key];
     var definition = get(id);
@@ -68,8 +69,23 @@
     built.setAttribute("position", new THREE.BufferAttribute(typed(part.pos, Float32Array, 4), 3));
     built.setIndex(new THREE.BufferAttribute(typed(part.idx, Uint16Array, 2), 1));
     built.computeVertexNormals();
+    if (basis) bakeSide(built, basis);
     cache[key] = built;
     return built;
+  }
+
+  /* 将静止姿态下的零件朝向烘成顶点属性。正数朝角色前方(+Z),负数朝后；
+     这样着色固定在零件表面,不会随单关节姿势变化而“流动”。 */
+  function bakeSide(geometry, basis) {
+    var THREE = window.THREE;
+    var normals = geometry.getAttribute("normal");
+    if (!THREE || !normals) return false;
+    var sides = new Float32Array(normals.count);
+    for (var i = 0; i < normals.count; i++) {
+      sides[i] = basis[6] * normals.getX(i) + basis[7] * normals.getY(i) + basis[8] * normals.getZ(i);
+    }
+    geometry.setAttribute("aSide", new THREE.BufferAttribute(sides, 1));
+    return true;
   }
 
   /* 一个模型的粗略规模,给界面与自检报数用 */

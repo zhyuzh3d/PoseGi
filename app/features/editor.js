@@ -11,7 +11,7 @@
  *   姿态  = 一整套预设       选取 = 关节选择与微调(原来的「关节」)
  *   工具  = 左右镜像 / 相机归位(原来的「搬运」,并把取景按钮收进来;
  *           「搬运」本身已在 2026-09-30 按用户要求去掉)
- *   渲染  = 正反着色三档(原来的「正反」)   生成 = 出图
+ *   渲染  = 正反黑白与彩色骨架检查层   生成 = 出图
  */
 (function (app) {
   "use strict";
@@ -522,70 +522,46 @@
     });
   }
 
-  /* ---------- 底部 sheet:渲染(彩色骨架) ---------- */
-
-  /* 两个档位(2026-10-01 用户要求):关 / 彩色骨架。
-     原来是"无 / 正反黑白 / 正反红绿"三档 —— 红绿那一档连同它底下整套 shader 注入一起删了,
-     换成**骨架覆盖层**:打开之后屏上直接铺一层"发给模型的那张彩色骨架 + 脸点阵",
-     而人偶照旧拖得动(覆盖层 pointer-events: none,见 viewport 那一节)。
-     为什么留着这张弹窗、而不是把 dock 上那颗按钮改成一键开关:它下面要写清"这一层是什么、
-     会不会跟着截图与成图走",这两句只有弹窗里放得下(位置与旧三档完全相同,只是档位少了一个)。 */
-  var SKELETON_MODES = [
-    { value: 0, icon: "fa-solid fa-circle-half-stroke", zh: "关闭", en: "Off",
-      zhHint: "只看人偶自己", enHint: "Show the figure only" },
-    { value: 1, icon: "fa-solid fa-person", zh: "彩色骨架", en: "Colour skeleton",
-      zhHint: "叠一层发给模型的彩色骨架与脸点阵,仍然可以拖拽节点摆姿势",
-      enHint: "Overlay the colour skeleton and face points sent to the model; joints stay draggable" }
-  ];
-
-  function skeletonInfo(mode) {
-    return SKELETON_MODES.filter(function (item) { return item.value === Number(mode); })[0] || SKELETON_MODES[0];
-  }
-
-  function skeletonLabel(mode) {
-    var info = skeletonInfo(mode);
-    return text(info.zh, info.en);
-  }
+  /* ---------- 底部 sheet:渲染检查层 ---------- */
 
   function openRenderSheet() {
-    var mode = app.components.viewport.skeletonMode() ? 1 : 0;
-    var tabs = '<div class="tab-row" role="tablist">' + SKELETON_MODES.map(function (item) {
-      return '<button type="button" role="tab" class="tab-button' + (item.value === mode ? " is-on" : "") +
-        '" data-mode="' + item.value + '" aria-selected="' + (item.value === mode ? "true" : "false") + '">' +
-        '<i class="' + item.icon + '" aria-hidden="true"></i>' +
-        esc(text(item.zh, item.en)) + "</button>";
-    }).join("") + "</div>";
-
-    function hintHtml(value) {
-      var info = skeletonInfo(value);
-      return '<p class="tab-hint">' + esc(text(info.zhHint, info.enHint)) + "</p>";
+    var viewport = app.components.viewport;
+    function switchRow(labelZh, labelEn, hintZh, hintEn, attribute, checked) {
+      var label = text(labelZh, labelEn);
+      return '<label class="switch-row render-inspect-switch"><span class="switch-text"><strong>' + esc(label) +
+        '</strong><small>' + esc(text(hintZh, hintEn)) + '</small></span><span class="switch"><input type="checkbox" ' +
+        attribute + ' aria-label="' + esc(label) + '"' + (checked ? " checked" : "") +
+        '><span class="switch-track"></span><span class="switch-thumb"></span></span></label>';
     }
 
     app.components.ui.openSheet({
       eyebrow: text("检查", "Inspect"),
       title: text("渲染", "Render"),
-      bodyHtml: tabs + '<div id="skeleton-hint">' + hintHtml(mode) + "</div>" +
-        '<p class="sheet-note">' + text("这一层只是显示:它不吃触摸,也不会被截图与成图带上 —— "
-          + "发给模型的那张骨架图是按当前姿势与视角重新画的一张。",
-          "This is display only: it never takes touch input, and it never reaches a screenshot "
-          + "or a generated image — the skeleton sent to the model is drawn fresh from the current pose and view.") + "</p>",
+      bodyHtml: switchRow("前后区分", "Distinguish front and back",
+        "正面偏白、背面偏灰,便于检查人偶零件朝向。", "Tint the front white and the back grey to inspect part orientation.",
+        "data-front-back-toggle", viewport.frontBackMask()) +
+        switchRow("显示骨架", "Show skeleton",
+          "叠加发给模型的彩色骨架与脸点阵,仍可拖拽关节摆姿势。", "Overlay the colour skeleton and face points sent to the model; joints stay draggable.",
+          "data-skeleton-toggle", viewport.skeletonMode()),
       onMount: function (content) {
-        var hint = content.querySelector("#skeleton-hint");
-        Array.prototype.forEach.call(content.querySelectorAll("[data-mode]"), function (button) {
-          button.onclick = function () {
-            var next = Number(button.dataset.mode);
-            app.components.viewport.setSkeletonMode(next > 0);
-            Array.prototype.forEach.call(content.querySelectorAll("[data-mode]"), function (item) {
-              var on = Number(item.dataset.mode) === next;
-              item.classList.toggle("is-on", on);
-              item.setAttribute("aria-selected", on ? "true" : "false");
-            });
-            if (hint) hint.innerHTML = hintHtml(next);
-            syncDock();
-            if (next === 0) status(defaultStatus());
-            else status(text("渲染:", "Render: ") + skeletonLabel(next));
-          };
-        });
+        var maskToggle = content.querySelector("[data-front-back-toggle]");
+        var skeletonToggle = content.querySelector("[data-skeleton-toggle]");
+        function renderStatus() {
+          var active = [];
+          if (viewport.frontBackMask()) active.push(text("前后区分", "Front/back"));
+          if (viewport.skeletonMode()) active.push(text("显示骨架", "Skeleton"));
+          status(active.length ? text("渲染:", "Render: ") + active.join(" / ") : defaultStatus());
+        }
+        if (maskToggle) maskToggle.onchange = function () {
+          viewport.setFrontBackMask(maskToggle.checked ? 1 : 0);
+          syncDock();
+          renderStatus();
+        };
+        if (skeletonToggle) skeletonToggle.onchange = function () {
+          viewport.setSkeletonMode(skeletonToggle.checked);
+          syncDock();
+          renderStatus();
+        };
       }
     });
   }
@@ -951,14 +927,14 @@
 
   /* ---------- 浮动按钮 ---------- */
 
-  /* 底部按钮的"开着"状态集中刷:骨架覆盖层、生成中。
+  /* 底部按钮的"开着"状态集中刷:两种渲染检查层、生成中。
      几处各改一次类名,迟早有一处忘了同步(比如骨架开着却看不出)。
      2026-09-30 起这里不再管搬运:「工具」里那一项已按用户要求去掉,搬运模式没有入口,
      留着那两行只会让下一个人以为还能点亮。 */
   function syncDock() {
     var viewport = app.components.viewport;
     var render = node("toggle-render");
-    if (render) render.classList.toggle("is-on", viewport.skeletonMode());
+    if (render) render.classList.toggle("is-on", viewport.skeletonMode() || viewport.frontBackMask());
     var generate = node("open-generate");
     if (generate) generate.classList.toggle("is-busy", app.services.imageEngine.busy());
   }
