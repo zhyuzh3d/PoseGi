@@ -28,7 +28,11 @@ PoseGi 是运行在 [Haminn](https://haminn.airen.life/) 宿主里的 3D 摆姿 
 - **本地优先与隐私**：角色,姿态,生图配置全部保存在本机 happ 的隔离数据区,公网服务必须 HTTPS,可信局域网允许 HTTP。
 - **语言与外观**：中英双语(默认跟随系统),锁定深色主题,锁定竖屏。
 
-> 截图位置：此处可放 3D 视口与摆姿结果的真机截图(仓库暂未内置静态截图文件)。
+## 视频演示
+
+**角色姿势锁定：AI 图像生成中国古风美女** —— 点击封面观看 YouTube Shorts：
+
+[![PoseGi 角色姿势锁定与古风人物生成演示](./docs/assets/posegi-pose-lock-short-thumbnail.jpg)](https://youtube.com/shorts/D1Ma22OXmnA?feature=share)
 
 ## 安装使用
 
