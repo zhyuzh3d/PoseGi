@@ -608,35 +608,86 @@
 
   /* back:"generate" = 这一层是被生成弹窗里的"去配置翻译"送过来的,关掉要把它摆回去 */
   function openPreferences(options) {
-    var languages = [["system", t("跟随系统", "System")], ["zh", "简体中文"], ["en", "English"]];
-    var current = app.i18n.preferred();
-    var html = '<div class="section-label">' + t("语言", "Language") + '</div>' +
-      tabRow("language", languages, current) +
-      '<p class="field-help">' + t("界面主题固定为深色,不提供切换。语言设置保存在本设备。", "The theme is fixed to dark and cannot be switched. The language setting is saved on this device.") + "</p>" +
-      (wantsTranslate() ? translateRowHtml() : "");
+    var selectedLanguage = app.i18n.preferred();
+    var promptLanguage = promptLanguageFor(selectedLanguage);
+    var posePrefixes = app.utils.copy(app.config.generation && app.config.generation.posePrefix
+      ? app.config.generation.posePrefix : app.defaults.generation.posePrefix);
+    function sheetOptions() {
+      var languages = [["system", t("跟随系统", "System")], ["zh", "简体中文"], ["en", "English"]];
+      var html = '<div class="section-label">' + t("语言", "Language") + '</div>' +
+        tabRow("language", languages, selectedLanguage) +
+        '<p class="field-help">' + t("界面主题固定为深色,不提供切换。选择语言后点保存才会生效。", "The theme is fixed to dark. Select a language and press Save to apply it.") + "</p>" +
+        (wantsTranslate() ? translateRowHtml() : "") +
+        '<div class="section-label">' + t("自动添加的姿势提示词", "Automatic pose instructions") + "</div>" +
+        '<label class="field"><span data-pose-prefix-label>' + promptPrefixLabel(promptLanguage) + "</span>" +
+        '<textarea name="posePrefix" rows="5">' + esc(posePrefixes[promptLanguage] || "") + "</textarea></label>" +
+        '<p class="field-help">' + t("这里只显示所选界面语言对应的提示词。编辑语言或提示词后，点击保存才会应用；留空表示不自动添加。",
+          "Only the instruction for the selected interface language is shown. Language and prompt edits take effect after you press Save; leave it empty to disable automatic insertion.") + "</p>" +
+        '<div class="form-actions"><button class="button button-primary" type="button" data-preferences-save>' +
+        t("保存", "Save") + "</button></div>";
+      return {
+        eyebrow: t("偏好", "Preferences"),
+        title: t("软件设置", "Preferences"),
+        bodyHtml: html,
+        onClose: options && options.back === "generate"
+          ? function () { app.features.editor.openGenerateSheet(); } : null,
+        onMount: mountPreferences
+      };
+    }
 
-    ui().openSheet({
-      eyebrow: t("偏好", "Preferences"),
-      title: t("软件设置", "Preferences"),
-      bodyHtml: html,
-      onClose: options && options.back === "generate"
-        ? function () { app.features.editor.openGenerateSheet(); } : null,
-      onMount: function (content) {
-        Array.prototype.forEach.call(content.querySelectorAll("[data-language]"), function (button) {
-          button.onclick = ui().action(async function () {
-            var config = app.utils.copy(app.config);
-            config.preferences.language = button.dataset.language;
-            await app.services.store.saveConfig(config);
-            app.i18n.setLanguage(button.dataset.language);
-            app.i18n.apply();
-            ui().closeSheet();
-            ui().toast(t("界面语言已更新", "Language updated"));
-          });
+    function mountPreferences(content) {
+      var languageButtons = content.querySelectorAll("[data-language]");
+      var posePrefixInput = content.querySelector('[name="posePrefix"]');
+      var posePrefixLabel = content.querySelector("[data-pose-prefix-label]");
+      function showSelectedLanguage() {
+        Array.prototype.forEach.call(languageButtons, function (button) {
+          var active = button.dataset.language === selectedLanguage;
+          if (active) button.classList.add("is-on");
+          else button.classList.remove("is-on");
+          button.setAttribute("aria-selected", active ? "true" : "false");
         });
-        var translateButton = content.querySelector("[data-translate-model]");
-        if (translateButton) translateButton.onclick = openTranslateForm;
+        promptLanguage = promptLanguageFor(selectedLanguage);
+        if (posePrefixInput) posePrefixInput.value = posePrefixes[promptLanguage] || "";
+        if (posePrefixLabel) posePrefixLabel.textContent = promptPrefixLabel(promptLanguage);
       }
-    });
+      Array.prototype.forEach.call(languageButtons, function (button) {
+        button.onclick = function () {
+          selectedLanguage = button.dataset.language;
+          showSelectedLanguage();
+        };
+      });
+      if (posePrefixInput) {
+        posePrefixInput.oninput = function () {
+          posePrefixes[promptLanguage] = posePrefixInput.value;
+        };
+      }
+      var saveButton = content.querySelector("[data-preferences-save]");
+      if (saveButton) saveButton.onclick = ui().action(async function () {
+        var config = app.utils.copy(app.config);
+        config.preferences.language = selectedLanguage;
+        if (!config.generation) config.generation = {};
+        config.generation.posePrefix = app.utils.copy(posePrefixes);
+        await app.services.store.saveConfig(config);
+        app.i18n.setLanguage(selectedLanguage);
+        app.i18n.apply();
+        promptLanguage = promptLanguageFor(selectedLanguage);
+        ui().openSheet(sheetOptions());
+        ui().toast(t("设置已保存", "Settings saved"));
+      });
+      var translateButton = content.querySelector("[data-translate-model]");
+      if (translateButton) translateButton.onclick = openTranslateForm;
+    }
+
+    ui().openSheet(sheetOptions());
+  }
+
+  function promptLanguageFor(preference) {
+    if (preference === "en" || preference === "zh") return preference;
+    return app.i18n.language() === "en" ? "en" : "zh";
+  }
+
+  function promptPrefixLabel(language) {
+    return language === "en" ? t("英文提示词", "English instruction") : t("中文提示词", "Chinese instruction");
   }
 
   /* ---------- 添加中英文翻译模型 ----------
@@ -802,7 +853,7 @@
         helpLine(fa("fa-solid", "camera"), t("转视角", "Orbit the view"),
           t("在空白处拖动转视角,双指捏合放缩,双指拖动平移,双击空白让整个人回到画面正中。", "Drag the background to orbit, pinch to zoom, two-finger drag to pan, double-tap the background to bring the figure back to the centre.")),
         helpLine(fa("fa-solid", "screwdriver-wrench"), t("工具", "Tools"),
-          t("「工具」里两件事:左右镜像(左右姿势整体翻转)、相机归位。", "Tools holds two things: Mirror (flip the pose left to right) and Reset view.")),
+          t("「工具」里可以左右镜像、身体摆正并保留肢体姿势,也可以让相机归位。", "Tools can mirror the pose, straighten the body while keeping the limb pose, and reset the view.")),
         helpLine(fa("fa-solid", "palette"), t("渲染", "Render"),
           t("「渲染」里可以分别打开正反黑白和发给模型的彩色骨架+脸点阵,两层也能同时显示。它们只用于检查,不改变姿态,也不会进成图。", "Render can show front-back black and white and the colour skeleton with face points sent to the model. Both layers can be shown together. They are for inspection only and never change the pose or generated image."))
       ]) +
@@ -811,7 +862,7 @@
           t("先写一句画面描述,再点生成。PoseGi 会把当前姿态渲染成 9:16、高 1024 的参考图,连同描述与参考图强度一起交给模型。",
             "Write a description, then generate. PoseGi renders the current pose into a 9:16 reference, 1024 high, and hands it to the model together with the description and the reference strength.")),
         helpLine(fa("fa-solid", "images"), t("历史成图", "History"),
-          t("生成弹窗里是当前作品最近 12 张成图。点右上角的叉就能删掉那一张(槽位跟着空出来),点图片本身可以全屏查看、放大拖动,也能在那里删。超过 12 张时最旧的会被顶掉。", "The generation sheet shows the last 12 images of this artwork. The cross in a thumbnail's top-right corner deletes just that one and frees its slot; tapping the image itself opens it fullscreen to zoom, pan and delete. Past 12, the oldest drops off.")),
+          t("生成弹窗里是当前作品最近 12 张成图。点右上角的叉就能删掉那一张(槽位跟着空出来),点图片本身可以全屏查看、放大拖动、下载当前调色后的图片,也能在那里删除。超过 12 张时最旧的会被顶掉。", "The generation sheet shows the last 12 images of this artwork. The cross in a thumbnail's top-right corner deletes just that one and frees its slot; tapping the image opens it fullscreen to zoom, pan, download the adjusted image, or delete it. Past 12, the oldest drops off.")),
         helpLine(fa("fa-solid", "ban"), t("取消", "Cancel"),
           t("生成过程中可以关掉弹窗,也可以点取消。取消只是不再等这一次的结果,服务端任务可能仍在跑。", "You can close the sheet or cancel while generating. Cancel stops waiting for this result; the server job may still be running."))
       ]) +

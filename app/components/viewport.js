@@ -1370,9 +1370,13 @@
      换算规则在 app.utils.placeNdc 里(纯算术,有自己的测试),这里只负责取数。 */
   function projectIn(point, windowWidth, windowHeight) {
     scratchB.copy(point).project(state.camera);
-    return app.utils.placeNdc({ x: scratchB.x, y: scratchB.y }, state.camera.aspect, {
+    var projected = app.utils.placeNdc({ x: scratchB.x, y: scratchB.y }, state.camera.aspect, {
       windowWidth: windowWidth, windowHeight: windowHeight
     });
+    /* Three.js 摄像机朝局部 -Z 看。变换到相机空间后取 -z,得到沿视线的节点深度:
+       数值小的是近处,数值大的是远处。它比世界坐标 z 或连线表顺序都能正确处理转视角。 */
+    projected.depth = -scratchA.copy(point).applyMatrix4(state.camera.matrixWorldInverse).z;
+    return projected;
   }
 
   /* 相机绕竖直轴的方位角(度)。脸点阵按它决定侧脸压多窄 ——
@@ -1386,7 +1390,8 @@
    *   width / height  取景窗口的像素(不给就取屏幕那块画布);aspect 就是它的宽高比
    *   aspect          取景用的宽高比,不给就按窗口本身的宽高比
    *   offsetX/offsetY 目标画布相对这个窗口的偏移(= 居中裁切去掉的那部分)
-   * 返回 [{ joint, a: [x, y], b: [x, y] }],格式由 skeleton.js 那边的 carriers 定义。
+   * 返回 [{ joint, a: [x,y], b: [x,y], aDepth, bDepth, depth }]:端点与骨杆中点均带相机空间深度。
+   * 深度是投影点经 camera.matrixWorldInverse 变换后的 -z:数值越小越靠近摄像机。
    * **骨架齐不齐由下游判**:缺骨头时 skeleton.keypoints 返回 null,那边画一张空白图,
    * 而不是这边少返回几根、那边画半个人(规则只有一处,见 skeleton.js 的 REQUIRED_BONES)。 */
   function poseSegments(options) {
@@ -1396,6 +1401,7 @@
     if (!ready() || !state.camera) return [];
     if (!width) width = Math.max(1, state.container ? state.container.clientWidth : 1);
     if (!height) height = Math.max(1, state.container ? state.container.clientHeight : 1);
+    state.camera.updateMatrixWorld(true);
     var offsetX = Number(config.offsetX) || 0;
     var offsetY = Number(config.offsetY) || 0;
     var segments = [];
@@ -1405,7 +1411,15 @@
       if (!origin || !tail) return;
       var a = projectIn(origin, width, height);
       var b = projectIn(tail, width, height);
-      segments.push({ joint: name, a: [a.x - offsetX, a.y - offsetY], b: [b.x - offsetX, b.y - offsetY] });
+      var center = projectIn(scratchC.copy(origin).add(tail).multiplyScalar(0.5), width, height);
+      segments.push({
+        joint: name,
+        a: [a.x - offsetX, a.y - offsetY],
+        b: [b.x - offsetX, b.y - offsetY],
+        aDepth: a.depth,
+        bDepth: b.depth,
+        depth: center.depth
+      });
     });
     return segments;
   }
@@ -1718,6 +1732,15 @@
     return body();
   }
 
+  /* 清掉人物整体框的旋转,但保留用户搬动过的位置与框内的关节姿态。 */
+  function straightenBodyRotation() {
+    if (!state.bbox) return body();
+    state.bbox.quaternion.identity();
+    state.bbox.updateMatrixWorld(true);
+    app.events.emit("viewport:body", body());
+    return body();
+  }
+
   /* 取景:让小人恰好占满舞台。
      立方体只按"关节原点"量会漏掉头和脚(它们的原点到末端还有一段),
      本机渲染踩到过:头被顶栏切掉、脚贴到按钮条。所以起点与末端都要量进来。 */
@@ -2024,6 +2047,7 @@
     theme: function () { return themeName; },
     body: body,
     resetBody: resetBody,
+    straightenBodyRotation: straightenBodyRotation,
     pick: pick,
     probe: probe,
     screenOf: screenOf,

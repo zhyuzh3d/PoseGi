@@ -26,7 +26,7 @@
 (function (app) {
   "use strict";
 
-  var root, stage, source, surface, zoom, panel, adjustButton;
+  var root, stage, source, surface, zoom, panel, adjustButton, downloadButton;
   var current = null, scale = 1, offsetX = 0, offsetY = 0;
   var pointers = {}, gesture = null, stageRect = null, transformTask = null, paintTask = null;
   var sourceReady = false;
@@ -138,7 +138,7 @@
   /* ---------- 底部调色面板 ----------
    * 2026-09-30 用户要求:「添加调色工具,参照 HamDraw 的全屏渲染图查看界面的底部调色面板,
    * 调色参数也要保存到作品文档」。
-   * **六个滑杆 + 两个动作**都由 adjust.KEYS / adjust.RANGE 生成 —— 参数表、行程、后缀
+   * 六个滑杆、重置 / 关闭按钮和效果开关都在这里生成;参数表、行程、后缀
    * 全在 services/render-adjust.js 一处,这里只负责把标签翻译出来并拼成 DOM。
    * 两列而不是三列:手机上三列会把「对比度」「梦幻辉光」这类三字标签折成两行,
    * 而滑杆只剩一条缝可用(见 components.css)。
@@ -156,6 +156,8 @@
       '<div class="render-preview-adjust-actions">' +
       '<button class="button button-secondary" type="button" data-adjust-action="reset">' +
       '<i class="fa-solid fa-rotate-left" aria-hidden="true"></i>' + t("重置", "Reset") + "</button>" +
+      '<button class="button button-secondary" type="button" data-adjust-action="close">' +
+      '<i class="fa-solid fa-xmark" aria-hidden="true"></i>' + t("关闭", "Close") + "</button>" +
       /* 开关放在最右:滑杆全回中性之后,它是唯一还能看出"调色到底有没有生效"的东西 ——
          也是唯一能把两张图并排比出来的办法。 */
       '<label class="render-preview-switch"><span>' + t("调色效果", "Color effect") + "</span>" +
@@ -268,6 +270,7 @@
     zoom = document.getElementById("render-preview-zoom");
     panel = document.getElementById("render-preview-adjustments");
     adjustButton = document.getElementById("render-preview-adjust");
+    downloadButton = document.getElementById("render-preview-download");
 
     transformTask = app.runtime.createFrameTask(apply);
     paintTask = app.runtime.createFrameTask(drawSurface);
@@ -283,6 +286,7 @@
     document.getElementById("render-preview-close").onclick = close;
     document.getElementById("render-preview-reset").onclick = reset;
     document.getElementById("render-preview-delete").onclick = app.components.ui.action(remove);
+    if (downloadButton) downloadButton.onclick = app.components.ui.action(downloadAdjusted);
     if (adjustButton) adjustButton.onclick = togglePanel;
 
     adjust.KEYS.forEach(function (key) {
@@ -307,6 +311,8 @@
       adjustments = adjust.normalize(null);
       pushAdjustments();
     };
+    var closeAdjust = panel && panel.querySelector('[data-adjust-action="close"]');
+    if (closeAdjust) closeAdjust.onclick = closePanel;
 
     source.onload = function () {
       if (!current || source.getAttribute("src") !== current.src) return;
@@ -321,14 +327,6 @@
       if (surface) surface.hidden = true;
     };
 
-    document.addEventListener("keydown", function (event) {
-      if (root.hidden) return;
-      if (event.key === "Escape") {
-        /* 面板开着时先收面板 —— 一次返回只做一件事,和系统返回键的习惯一致 */
-        if (panel && !panel.hidden) closePanel();
-        else close();
-      }
-    });
     return true;
   }
 
@@ -336,6 +334,7 @@
     if (!result || !result.src) return false;
     current = result;
     root.hidden = false;
+    if (app.components.ui && app.components.ui.syncBackEntry) app.components.ui.syncBackEntry();
     closePanel();
     sourceReady = false;
     if (surface) surface.hidden = true;
@@ -349,6 +348,7 @@
   function close() {
     if (!root || root.hidden) return;
     root.hidden = true;
+    if (app.components.ui && app.components.ui.syncBackEntry) app.components.ui.syncBackEntry();
     closePanel();
     source.removeAttribute("src");
     sourceReady = false;
@@ -362,6 +362,35 @@
     settleTimer = 0;
     drafting = false;
     current = null;
+  }
+
+  /* 系统返回先收调色面板,再次返回才关闭全屏预览。 */
+  function handleBack() {
+    if (!root || root.hidden) return false;
+    if (panel && !panel.hidden) closePanel();
+    else close();
+    return true;
+  }
+
+  /* 导出与屏幕显示同一套调色,但始终用原图尺寸绘制,不把缩放/平移写进文件。 */
+  async function downloadAdjusted() {
+    if (!current || !sourceReady) throw new Error(t("图片还没有加载完成", "The image has not finished loading"));
+    var canvas = document.createElement("canvas");
+    try {
+      if (!adjust.draw(canvas, source, adjustments, { draft: false })) {
+        throw new Error(t("无法生成调色图片", "Could not render the adjusted image"));
+      }
+      var dataUrl = canvas.toDataURL("image/png");
+      if (!dataUrl || dataUrl === "data:,") throw new Error(t("无法生成调色图片", "Could not render the adjusted image"));
+      var fileId = String(current.id || Date.now()).replace(/[^A-Za-z0-9_-]/g, "_");
+      var result = await app.platform.haminn.saveImage({ dataUrl: dataUrl }, "PoseGi-" + fileId + ".png");
+      if (result && result.cancelled) return;
+      if (!result || !result.exported) throw new Error(t("保存图片没有完成", "The image was not saved"));
+      app.components.ui.toast(t("调色后的图片已保存", "Adjusted image saved"));
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   }
 
   /* 删除就发生在全屏里(用户要求:「全屏观看时候可以点击删除」)——
@@ -385,6 +414,7 @@
     init: init,
     open: open,
     close: close,
+    handleBack: handleBack,
     reset: reset,
     /* 作品文档的两个方向:取数口给 store,装回来由装配层调 setAdjustments */
     adjustments: function () { return app.utils.copy(adjustments); },

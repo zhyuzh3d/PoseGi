@@ -30,8 +30,8 @@ PoseGi 是 HaminnApp 中运行的普通 happ,不是 HaminnUI,也不拥有宿主�
 
 ## 开发与验证节奏
 
-- 日常迭代走热更新:`python3 tools/dev.py --address http://PHONE:8766`(等价 `haminn-agent.py develop-dir`)。改代码不等于发版,不递增版本号、不生成 release zip。
-- 版本号与 `haminn-install.json` 只在用户明确要求发版、交付稳定包或更新下载位时才动。
+- 本轮有代码修改且以热更新或完整设备更新交付时,首次设备同步前自动递增 `haminn.json` 的版本号第三段(如 `0.1.22` → `0.1.23`),同时将 `version.code` 加一。一个任务只递增一次,即使先热更新再做完整更新;用户明确指定版本或策略时按其要求处理。只交付源码而不更新设备时不递增版本。
+- 日常热更新使用 `python3 tools/dev.py --address http://PHONE:8766`(等价 `haminn-agent.py develop-dir`)。补丁递增后的 `haminn.json` 随 DEV 同步;热更新不生成 release zip,也不改 `haminn-install.json`。完整稳定版更新才按仓库发布流程更新发布包与安装清单。
 - 验证强度与改动相称:界面或逻辑改动只跑与改动直接相关的检查(`node tools/verify.mjs --source-only`,必要时一次真机确认);`tests/` 全量与 `tools/package.py` 只在用户要求或改动触及发布产物时跑。
 - 报告"已修复 / 已生效"之前,先在设备上读到对应证据(页面状态或截图),不要只凭同步成功就下结论。
 - 同一批代码没有变化时不重复同步、打包或安装。

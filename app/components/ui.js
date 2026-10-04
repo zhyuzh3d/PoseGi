@@ -10,11 +10,15 @@
   "use strict";
 
   var nodes = {};
+  var backEntry = false;
+  var releasePending = false;
 
   function node(id) { return document.getElementById(id); }
 
   function init() {
     nodes.toastStack = node("toast-stack");
+    nodes.menu = node("app-menu");
+    nodes.menuButton = node("open-menu");
     nodes.modalLayer = node("modal-layer");
     nodes.modalTitle = node("modal-title");
     nodes.modalEyebrow = node("modal-eyebrow");
@@ -38,7 +42,89 @@
     if (nodes.modalLayer) nodes.modalLayer.hidden = true;
     if (nodes.confirmLayer) nodes.confirmLayer.hidden = true;
     if (nodes.pickerLayer) nodes.pickerLayer.hidden = true;
+    window.addEventListener("popstate", onHistoryBack);
+    document.addEventListener("keydown", onKeyDown);
     return nodes;
+  }
+
+  function hasOpenOverlay() {
+    return Boolean((nodes.confirmLayer && !nodes.confirmLayer.hidden) ||
+      (nodes.pickerLayer && !nodes.pickerLayer.hidden) ||
+      (node("render-preview") && !node("render-preview").hidden) ||
+      (nodes.modalLayer && !nodes.modalLayer.hidden) ||
+      (nodes.menu && !nodes.menu.hidden));
+  }
+
+  /* Android 宿主在 WebView 有历史时会 goBack(),没有历史时才退出应用。
+     弹层打开期间压入一个同 URL 历史项,让系统返回先交给 popstate;最后一层
+     通过按钮关闭时再退掉这个拦截项,不留下“空返回”让用户多按一次。 */
+  function syncBackEntry() {
+    if (hasOpenOverlay()) {
+      if (backEntry || releasePending) return;
+      var current = window.history.state;
+      var state = {};
+      if (current && typeof current === "object") {
+        Object.keys(current).forEach(function (key) { state[key] = current[key]; });
+      }
+      state.__posegiModalBack = true;
+      try {
+        window.history.pushState(state, "", window.location.href);
+        backEntry = true;
+      } catch (error) {
+        backEntry = false;
+      }
+      return;
+    }
+    if (!backEntry || releasePending) return;
+    backEntry = false;
+    releasePending = true;
+    window.history.back();
+  }
+
+  function closeTopOverlay() {
+    if (nodes.confirmLayer && !nodes.confirmLayer.hidden) {
+      settle(false);
+      return true;
+    }
+    if (nodes.pickerLayer && !nodes.pickerLayer.hidden) {
+      settleChoice(null);
+      return true;
+    }
+    var preview = node("render-preview");
+    if (preview && !preview.hidden && app.components.renderPreview && app.components.renderPreview.handleBack) {
+      return app.components.renderPreview.handleBack();
+    }
+    if (nodes.modalLayer && !nodes.modalLayer.hidden) {
+      closeSheet();
+      return true;
+    }
+    if (nodes.menu && !nodes.menu.hidden) {
+      nodes.menu.hidden = true;
+      if (nodes.menuButton) nodes.menuButton.setAttribute("aria-expanded", "false");
+      return true;
+    }
+    return false;
+  }
+
+  function onHistoryBack() {
+    if (releasePending) {
+      releasePending = false;
+      backEntry = false;
+      syncBackEntry();
+      return;
+    }
+    if (!backEntry) return;
+    backEntry = false;
+    if (closeTopOverlay()) syncBackEntry();
+  }
+
+  function onKeyDown(event) {
+    if (event.key !== "Escape" || !hasOpenOverlay()) return;
+    if (closeTopOverlay()) {
+      event.preventDefault();
+      event.stopPropagation();
+      syncBackEntry();
+    }
   }
 
   function toast(message, kind) {
@@ -86,6 +172,7 @@
     nodes.modalActions.hidden = !sheet.footerHtml;
     setSheetVariant(sheet.variant);
     nodes.modalLayer.hidden = false;
+    syncBackEntry();
     app.i18n.apply(nodes.modalContent);
     /* 关闭之后该回到哪一层。弹层是单例,后开的会顶掉先开的,所以这个回调必须
        跟着"最后一次 openSheet"走:生成弹窗 → 模型列表 → 编辑卡片 这条链上,
@@ -103,6 +190,7 @@
     var handler = closeHandler;
     closeHandler = null;
     if (handler) handler();
+    syncBackEntry();
   }
 
   function sheetOpen() {
@@ -117,6 +205,7 @@
     pendingConfirm = null;
     if (nodes.confirmLayer) nodes.confirmLayer.hidden = true;
     resolve(value);
+    syncBackEntry();
   }
 
   function confirm(options) {
@@ -132,6 +221,7 @@
     nodes.confirmCancel.textContent = String(value.cancelText || app.i18n.text("取消", "Cancel"));
     nodes.confirmOk.onclick = function () { settle(true); };
     nodes.confirmLayer.hidden = false;
+    syncBackEntry();
     return new Promise(function (resolve) { pendingConfirm = resolve; });
   }
 
@@ -152,6 +242,7 @@
     pendingChoice = null;
     if (nodes.pickerLayer) nodes.pickerLayer.hidden = true;
     resolve(value);
+    syncBackEntry();
   }
 
   function choose(options) {
@@ -172,6 +263,7 @@
       button.onclick = function () { settleChoice(button.dataset.pickerOption); };
     });
     nodes.pickerLayer.hidden = false;
+    syncBackEntry();
     return new Promise(function (resolve) { pendingChoice = resolve; });
   }
 
@@ -206,6 +298,7 @@
     openSheet: openSheet,
     closeSheet: closeSheet,
     sheetOpen: sheetOpen,
+    syncBackEntry: syncBackEntry,
     confirm: confirm,
     choose: choose,
     action: action

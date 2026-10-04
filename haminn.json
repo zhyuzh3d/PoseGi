@@ -4,8 +4,8 @@
   "name": "PoseGi",
   "author": "zhyuzh",
   "version": {
-    "code": 23,
-    "name": "0.1.22"
+    "code": 25,
+    "name": "0.1.24"
   },
   "entry": "index.html",
   "routing": "hash",

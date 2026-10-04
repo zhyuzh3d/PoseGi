@@ -33,7 +33,6 @@
       <div class="app-menu" id="app-menu" hidden>
         <button data-menu="newwork"><i class="fa-solid fa-plus" aria-hidden="true"></i><span data-zh="添加作品" data-en="Add artwork">添加作品</span></button>
         <button data-menu="editwork"><i class="fa-solid fa-pen" aria-hidden="true"></i><span data-zh="编辑作品" data-en="Edit artwork">编辑作品</span></button>
-        <div class="menu-divider"></div>
         <button data-menu="results"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-zh="作品列表" data-en="Artwork list">作品列表</span></button>
         <div class="menu-divider"></div>
         <button data-menu="addmodel"><i class="fa-solid fa-plus" aria-hidden="true"></i><span data-zh="添加模型" data-en="Add model">添加模型</span></button>
@@ -133,7 +132,7 @@
     </section>
   </div>
 
-  <!-- 成图全屏查看:独立的整屏层,高度充满 / 拖动平移 / 双指放缩 / 底部调色 / 直接删除。
+  <!-- 成图全屏查看:独立的整屏层,高度充满 / 拖动平移 / 双指放缩 / 底部调色 / 下载 / 直接删除。
        它刻意不放进 .app-shell —— 那是个 flex 列,住在里面会被父级尺寸约束住。
        显示面是**画布**而不是 img(#render-preview-source 只当解码源,自己不显示):
        调色里的清晰度在 CSS 滤镜里没有对应物,只有画布能一次把六项都做掉。 -->
@@ -146,10 +145,11 @@
     <div class="render-preview-tools" role="toolbar">
       <button class="icon-button" id="render-preview-adjust" type="button" aria-expanded="false" aria-controls="render-preview-adjustments" data-zh="调色" data-en="Adjust colors" data-i18n-attr="aria-label"><i class="fa-solid fa-palette" aria-hidden="true"></i></button>
       <button class="icon-button" id="render-preview-reset" type="button" data-zh="复位图片" data-en="Reset image" data-i18n-attr="aria-label"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
+      <button class="icon-button" id="render-preview-download" type="button" data-zh="下载调色后的图片" data-en="Download adjusted image" data-i18n-attr="aria-label"><i class="fa-solid fa-download" aria-hidden="true"></i></button>
       <button class="icon-button" id="render-preview-delete" type="button" data-zh="删除这张成图" data-en="Delete this image" data-i18n-attr="aria-label"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>
       <button class="icon-button" id="render-preview-close" type="button" data-zh="关闭预览" data-en="Close preview" data-i18n-attr="aria-label"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
-    <!-- 六个滑杆与两个动作由 components/render-adjust.js 的 panelHtml() 生成:
+    <!-- 六个滑杆与面板操作由 app/components/render-preview.js 的 panelHtml() 生成:
          行程与标签的唯一出处在那里,这里只留一个空的挂载点。 -->
     <div class="render-preview-adjustments" id="render-preview-adjustments" hidden></div>
   </section>

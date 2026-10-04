@@ -1,7 +1,7 @@
 /* 彩色骨架控制图(2026-10-01 定稿)
  *
  * 责任:"把一具投影骨架画成 Qwen 认得出是 pose 的那张图"。纯几何 + 纯绘制:
- * 不认识视口、不认识姿态数据、不碰姿态 —— 输入是几根骨头的屏幕投影,输出是一块画布。
+ * 不认识视口、不认识姿态数据、不碰姿态 —— 输入是骨头的屏幕坐标与相机空间深度,输出是一块画布。
  *
  * **为什么必须是这个长相**:Qwen-Image 2.1 那条路上,参考图就是控制图,而它
  * **长什么样决定了被当成什么**。实测(技能 `a1x-comfy-device` §4.11–§4.12):
@@ -40,6 +40,13 @@
     [1, 0], [0, 14], [14, 16], [0, 15], [15, 17]
   ];
 
+  /* 能直接对应到真实人偶骨杆的控制线。躯干和头部控制线是由多个节点连成的投影线,
+     其深度由端点估算;真实四肢则使用该骨杆在相机空间的中点深度。 */
+  var LIMB_DEPTH_BONES = [
+    "shoulder.R", "shoulder.L", "upperArm.R", "forearm.R", "upperArm.L", "forearm.L",
+    null, "thigh.R", "shin.R", null, "thigh.L", "shin.L", null, null, null, null, null
+  ];
+
   /* 键位 0..13 各自的出处:`[骨头名, "a" | "b"]`。
      一次直接查表,而不是"每根骨头贡献一个端点"—— 膝与踝都取自各自的骨头末端,
      写成后者就必然要把大腿末端与小腿末端混成一个,那是错的。
@@ -70,14 +77,24 @@
     return isFinite(parsed) ? parsed : fallback;
   }
 
-  /* segs(每一项 { joint, a, b })按骨头名归档。a/b 都是 [x, y]。 */
+  function optionalDepth(value) {
+    if (value === null || value === undefined || value === "") return null;
+    var parsed = Number(value);
+    return isFinite(parsed) ? parsed : null;
+  }
+
+  /* segs(每一项 { joint, a, b, aDepth, bDepth, depth })按骨头名归档。
+     a/b 是 [x,y];深度是沿摄像机视线的距离,小值在前、大值在后。 */
   function collect(segs) {
     var by = {};
     (segs || []).forEach(function (seg) {
       if (!seg || !seg.joint || !seg.a || !seg.b) return;
       by[String(seg.joint)] = {
         a: [num(seg.a[0], 0), num(seg.a[1], 0)],
-        b: [num(seg.b[0], 0), num(seg.b[1], 0)]
+        b: [num(seg.b[0], 0), num(seg.b[1], 0)],
+        aDepth: optionalDepth(seg.aDepth),
+        bDepth: optionalDepth(seg.bDepth),
+        depth: optionalDepth(seg.depth)
       };
     });
     return by;
@@ -85,16 +102,18 @@
 
   /* 投影骨架 → COCO-18 的 18 个键位(数组,下标即键位号)。
      缺骨头返回 null —— 调用方据此画一张空白黑图,而不是画半个人。 */
-  function keypoints(segs) {
+  function mapKeypoints(segs) {
     var by = collect(segs);
     for (var index = 0; index < REQUIRED_BONES.length; index += 1) {
       if (!by[REQUIRED_BONES[index]]) return null;
     }
 
-    var kp = [];
+    var kp = [], depths = [];
     for (var slot = 1; slot < CARRIERS.length; slot += 1) {
       var carrier = CARRIERS[slot];
-      kp[slot] = by[carrier[0]][carrier[1]].slice();
+      var bone = by[carrier[0]];
+      kp[slot] = bone[carrier[1]].slice();
+      depths[slot] = bone[carrier[1] + "Depth"];
     }
 
     /* 头这一段:由 neck → 头顶推出鼻/眼/耳。
@@ -114,7 +133,18 @@
     kp[15] = [eyeLineX + sideX * headWidth * 0.22, eyeLineY + sideY * headWidth * 0.22];
     kp[16] = [eyeLineX - sideX * headWidth * 0.50, eyeLineY - sideY * headWidth * 0.50];
     kp[17] = [eyeLineX + sideX * headWidth * 0.50, eyeLineY + sideY * headWidth * 0.50];
-    return kp;
+    var headDepth = by.head.depth !== null ? by.head.depth : averageDepth(by.head.aDepth, by.head.bDepth);
+    depths[0] = headDepth;
+    depths[14] = headDepth;
+    depths[15] = headDepth;
+    depths[16] = headDepth;
+    depths[17] = headDepth;
+    return { points: kp, depths: depths, bones: by };
+  }
+
+  function keypoints(segs) {
+    var mapped = mapKeypoints(segs);
+    return mapped ? mapped.points : null;
   }
 
   /* 68 点人脸:由鼻/眼/耳推出下巴轮廓、眉、鼻梁与鼻翼、双眼、内外唇。
@@ -213,30 +243,62 @@
       context.fillRect(0, 0, width, height);
     }
 
-    var kp = keypoints(segs);
-    if (!kp) return { drawn: false, limbs: 0, joints: 0, face: 0 };
+    var mapped = mapKeypoints(segs);
+    if (!mapped) return { drawn: false, limbs: 0, joints: 0, face: 0 };
+    var kp = mapped.points;
 
     var limbs = 0, joints = 0;
     context.lineCap = "butt";
     context.lineJoin = "round";
+    var drawItems = [], order = 0, hasDepth = false;
     LIMBS.forEach(function (pair, index) {
       var color = css(PALETTE[index % PALETTE.length]);
       var from = kp[pair[0]], to = kp[pair[1]];
       if (!from || !to) return;
-      context.strokeStyle = color;
-      context.lineWidth = size.half * 2;
-      context.beginPath();
-      context.moveTo(from[0], from[1]);
-      context.lineTo(to[0], to[1]);
-      context.stroke();
-      limbs += 1;
-      [from, to].forEach(function (point) {
-        context.fillStyle = color;
+      var fromDepth = mapped.depths[pair[0]], toDepth = mapped.depths[pair[1]];
+      var depthBone = LIMB_DEPTH_BONES[index] && mapped.bones[LIMB_DEPTH_BONES[index]];
+      var strokeDepth = depthBone && depthBone.depth !== null
+        ? depthBone.depth : averageDepth(fromDepth, toDepth);
+      if (strokeDepth !== null || fromDepth !== null || toDepth !== null) hasDepth = true;
+      drawItems.push({ kind: "stroke", from: from, to: to, color: color, depth: strokeDepth, order: order++ });
+      [
+        { point: from, depth: fromDepth },
+        { point: to, depth: toDepth }
+      ].forEach(function (joint) {
+        if (joint.depth !== null) hasDepth = true;
+        drawItems.push({ kind: "joint", point: joint.point, color: color, depth: joint.depth, order: order++ });
+      });
+    });
+
+    /* 相机空间深度越大代表越远。按远到近绘制,让近处线段和节点覆盖远处内容;
+       深度相同时用 COCO 原顺序作稳定的颜色 tie-breaker。没有深度元数据时保留原顺序,
+       兼容纯 2D 调用方,但视口生成的参考图始终携带真实相机深度。 */
+    if (hasDepth) {
+      drawItems.sort(function (left, right) {
+        var leftDepth = left.depth === null ? 0 : left.depth;
+        var rightDepth = right.depth === null ? 0 : right.depth;
+        if (Math.abs(leftDepth - rightDepth) < 1e-7) return left.order - right.order;
+        return rightDepth - leftDepth;
+      });
+    }
+
+    drawItems.forEach(function (item) {
+      if (item.kind === "stroke") {
+        context.strokeStyle = item.color;
+        context.lineWidth = size.half * 2;
+        context.beginPath();
+        context.moveTo(item.from[0], item.from[1]);
+        context.lineTo(item.to[0], item.to[1]);
+        context.stroke();
+        limbs += 1;
+      } else {
+        var point = item.point;
+        context.fillStyle = item.color;
         context.beginPath();
         context.arc(point[0], point[1], size.joint, 0, Math.PI * 2);
         context.fill();
         joints += 1;
-      });
+      }
     });
 
     var face = 0;
@@ -250,6 +312,15 @@
       });
     }
     return { drawn: true, limbs: limbs, joints: joints, face: face };
+  }
+
+  function averageDepth(a, b) {
+    var hasA = a !== null && a !== undefined && isFinite(a);
+    var hasB = b !== null && b !== undefined && isFinite(b);
+    if (hasA && hasB) return (a + b) / 2;
+    if (hasA) return a;
+    if (hasB) return b;
+    return null;
   }
 
   /* 同上,但自己开一块画布。生图那条路要的就是它 ——

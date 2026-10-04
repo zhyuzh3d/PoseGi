@@ -109,14 +109,16 @@
     var button = node("open-menu");
     var menu = node("app-menu");
     if (!button || !menu) return;
-    function close() {
+    function close(syncBack) {
       menu.hidden = true;
       button.setAttribute("aria-expanded", "false");
+      if (syncBack !== false && app.components.ui && app.components.ui.syncBackEntry) app.components.ui.syncBackEntry();
     }
     button.onclick = function () {
       var open = menu.hidden;
       menu.hidden = !open;
       button.setAttribute("aria-expanded", open ? "true" : "false");
+      if (app.components.ui && app.components.ui.syncBackEntry) app.components.ui.syncBackEntry();
     };
     /* 点菜单以外的地方就收起来(2026-09-26 用户要求)。
        用 pointerdown 且走**捕获阶段**:click 要等手指抬起,菜单会慢半拍才消失;
@@ -132,7 +134,7 @@
     menu.addEventListener("click", function (event) {
       var target = event.target.closest("[data-menu]");
       if (!target) return;
-      close();
+      close(false);
       var action = target.dataset.menu;
       if (action === "newwork") openAddWorkSheet({});
       if (action === "editwork") openEditWorkSheet();
@@ -494,9 +496,13 @@
   function openToolsSheet() {
     var html =
       '<div class="tool-group"><span class="section-label">' + text("造型", "Pose") + "</span>" +
+      '<div class="tool-actions">' +
       '<button class="tool-row" data-action="mirror"><i class="fa-solid fa-left-right" aria-hidden="true"></i>' +
       '<span><strong>' + text("左右镜像", "Mirror") + "</strong><small>" +
-      text("左右姿势整体翻转", "Flip the pose left to right") + "</small></span></button></div>" +
+      text("左右姿势整体翻转", "Flip the pose left to right") + "</small></span></button>" +
+      '<button class="tool-row" data-action="straighten"><i class="fa-solid fa-person" aria-hidden="true"></i>' +
+      '<span><strong>' + text("身体摆正", "Straighten body") + "</strong><small>" +
+      text("归正骨盆与整体角度，保留肢体姿势", "Reset root rotations; keep limb pose") + "</small></span></button></div></div>" +
       '<div class="tool-group"><span class="section-label">' + text("视图", "View") + "</span>" +
       '<button class="tool-row" data-action="fit"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i>' +
       '<span><strong>' + text("相机归位", "Reset view") + "</strong><small>" +
@@ -512,6 +518,12 @@
             if (button.dataset.action === "mirror") {
               app.features.poser.mirror();
               status(text("已左右镜像", "Pose mirrored"));
+              return;
+            }
+            if (button.dataset.action === "straighten") {
+              app.features.poser.straightenBody();
+              app.components.viewport.straightenBodyRotation();
+              status(text("身体已摆正，肢体姿势保留", "Body straightened; limb pose kept"));
               return;
             }
             app.components.viewport.frameCamera();

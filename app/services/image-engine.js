@@ -25,8 +25,8 @@
  *   2) **取消 = 忽略这次等待**(用户原话:「点击就忽略刚才发起的生成」)。
  *      服务端的任务我们停不掉(插件不保证可中断),所以只保证"结果不再落到作品里"。
  *
- * 提示词前缀(2026-09-30 用户要求):每次提交生成时在提示词**开头**补一句,
- * 说明参考图 1 只当姿势用。见 POSE_PREFIX。
+ * 提示词前缀(用户要求):每次提交生成时在提示词开头添加软件设置中的姿势说明。
+ * 中英文两版保存在 app.config.generation.posePrefix,编辑后下一次提交立即读取。
  *
  * 提交哪一份提示词(2026-09-30 用户要求):卡要英文时,提交前自动译英并缓存复用
  * (界面上没有翻译按钮,翻不翻全在这里定);卡不要英文时一律用输入框那份。
@@ -41,32 +41,25 @@
   var dismissed = false;
   var listeningPending = false;
 
-  /* 参考图是"姿势依据",不是"人物长相的依据"(2026-09-30 用户要求)。
-   *
-   * 不说这一句的话,模型会把参考图里那个人偶的外观一起搬过来 —— 体型、发型、衣服
-   * 都跟着走,而用户要的只是它摆出来的那个姿势(PoseGi 的人偶本来就是通用替身)。
-   * 所以每次提交都在**提示词开头**明说一次,不写进作品提示词里:
-   * 它是发给模型的一行调用参数,不是用户写的内容,存进作品会让列表里每件作品都长得一样。
-   *
-   * 语言跟着**最终提示词**走,而不是跟着界面语言:模型卡要英文时整段提示词已经
-   * 译成英文(见 prepare),那时候再往英文提示词前面挂一句中文,两句话互相打架。
-   * 空提示词(允许为空)没有语言线索,才按界面语言。 */
-  var POSE_PREFIX = {
-    zh: "参考图1只做姿势参考，不要使用参考图中角色的人物外形、发型或服饰等任何外观特征。",
-    en: "Reference image 1 is for pose reference only. Do not use any appearance features of the character in the reference image, such as their body shape, hairstyle, or clothing."
-  };
-
-  /* 该补哪一种语言的那一句 */
+  /* 语言跟着最终提交的提示词走,模型卡要英文时先译英再取英文前缀。
+     空提示词才跟随界面语言。配置中显式留空表示用户关闭该语言的自动前缀。 */
   function posePrefix(prompt) {
     var text = String(prompt === null || prompt === undefined ? "" : prompt).trim();
-    if (text) return app.services.translate.hasCjk(text) ? POSE_PREFIX.zh : POSE_PREFIX.en;
-    return app.i18n.language() === "en" ? POSE_PREFIX.en : POSE_PREFIX.zh;
+    var language = text
+      ? (app.services.translate.hasCjk(text) ? "zh" : "en")
+      : (app.i18n.language() === "en" ? "en" : "zh");
+    var configured = app.config && app.config.generation && app.config.generation.posePrefix;
+    var defaults = app.defaults && app.defaults.generation && app.defaults.generation.posePrefix;
+    var value = configured && configured[language];
+    if (value === undefined || value === null) value = defaults && defaults[language];
+    return String(value === undefined || value === null ? "" : value).trim();
   }
 
-  /* 提示词为空时前缀就是整段提示词(不能留下一个空行开头) */
+  /* 提示词为空时前缀就是整段提示词;前缀被用户清空时只发送原提示词。 */
   function withPosePrefix(prompt) {
     var text = String(prompt === null || prompt === undefined ? "" : prompt).trim();
     var head = posePrefix(text);
+    if (!head) return text;
     return text ? head + "\n" + text : head;
   }
 

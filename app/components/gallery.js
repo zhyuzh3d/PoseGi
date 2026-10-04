@@ -5,9 +5,8 @@
  *
  * 挂载:init(弹层里的挂载点),每次打开作品列表时由 editor 传进来。
  *
- * 版式照 hamdraw 的作品列表:两列卡片、预览区、底部一行操作。
- * 预览区这里放**角色描述**而不是缩略图:一件作品可能还没有成图,
- * 一张空白的预览框比一段文字更没用。
+ * 版式照 hamdraw 的作品列表:两列卡片、最新成图预览、底部一行操作。
+ * 还没有成图时保留统一的灰色图片占位图;历史作品的图片只在卡片进入视口附近时读取。
  *
  * 2026-09-25 用户要求两处改动:
  *   1) 「作品库中的添加按钮去掉,作品库改名作品列表」—— 新建的入口收到右上角菜单里
@@ -19,6 +18,8 @@
   "use strict";
 
   var host = null;
+  var thumbnailObserver = null;
+  var paintRevision = 0;
   /* 正在编辑哪一件(空串 = 在看列表)。
    * 为什么需要它:保存 / 立即翻译都会写作品,store 于是发 works:changed,
    * 而 editor 收到这个事件就会调一次 render() —— 那会把**正在填的表单**整块换掉,
@@ -28,6 +29,13 @@
 
   function t(zh, en) { return app.i18n.text(zh, en); }
   function esc(value) { return app.utils.escapeHtml(value); }
+
+  function cardTime(value) {
+    var date = new Date(Number(value) || Date.now());
+    function pad(number) { return (number < 10 ? "0" : "") + number; }
+    return pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + " " +
+      pad(date.getHours()) + ":" + pad(date.getMinutes());
+  }
 
   function init(element) {
     host = element || host;
@@ -41,12 +49,14 @@
   function cardHtml(item) {
     var current = item.current ? '<span class="art-current">' + t("当前作品", "Current") + "</span>" : "";
     var prompt = String(item.prompt || "").trim();
+    var thumbnail = Number(item.count) > 0 || item.hasResults;
     return '<article class="art-card" data-work="' + esc(item.id) + '">' +
-      '<button class="art-open" data-open="' + esc(item.id) + '">' + current +
+      '<button class="art-open" data-open="' + esc(item.id) + '">' +
+      '<span class="art-preview"' + (thumbnail ? ' data-thumbnail-for="' + esc(item.id) + '"' : "") + ' aria-hidden="true">' + current + '<i class="fa-regular fa-image"></i></span>' +
       '<span class="art-prompt">' + (prompt ? esc(prompt) : '<em>' + t("还没有描述", "No description yet") + "</em>") + "</span>" +
-      '<span class="art-badge">' + item.count + " " + t("张成图", "images") + "</span></button>" +
+      '<span class="art-summary"><span class="art-badge">' + item.count + " " + t("张成图", "images") + "</span>" +
+      '<span class="art-date">' + esc(cardTime(item.updatedAt)) + "</span></span></button>" +
       '<div class="art-meta"><span class="art-title">' + esc(item.title) + "</span>" +
-      '<span class="art-date">' + esc(app.utils.formatTime(item.updatedAt)) + "</span>" +
       '<div class="art-actions">' +
       '<button class="button button-secondary" data-open="' + esc(item.id) + '">' + t("打开", "Open") + "</button>" +
       '<button class="icon-button" data-edit="' + esc(item.id) + '" aria-label="' + t("编辑作品", "Edit artwork") + '"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>' +
@@ -70,8 +80,42 @@
        连带销毁 —— 表现是"第二次打开作品列表是空的"。挂载点没了就什么也不做。 */
     if (!host || (host.isConnected === false)) return;
     editing = "";
+    paintRevision += 1;
+    if (thumbnailObserver) thumbnailObserver.disconnect();
+    thumbnailObserver = null;
     var list = app.services.store.listWorks();
     host.innerHTML = list.length ? '<div class="gallery-grid">' + list.map(cardHtml).join("") + "</div>" : emptyHtml();
+
+    var revision = paintRevision;
+    function loadThumbnail(preview) {
+      var workId = preview.getAttribute("data-thumbnail-for");
+      if (!workId) return;
+      preview.removeAttribute("data-thumbnail-for");
+      app.services.store.latestThumbnail(workId).then(function (src) {
+        if (!src || revision !== paintRevision || !preview.isConnected) return;
+        var image = document.createElement("img");
+        image.className = "art-thumbnail";
+        image.alt = "";
+        image.onload = function () { preview.classList.add("has-image"); };
+        image.onerror = function () { image.remove(); };
+        image.src = src;
+        preview.appendChild(image);
+      }).catch(function () {});
+    }
+    var pendingThumbnails = host.querySelectorAll("[data-thumbnail-for]");
+    if (typeof window.IntersectionObserver === "function") {
+      var observer = new window.IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          observer.unobserve(entry.target);
+          loadThumbnail(entry.target);
+        });
+      }, { rootMargin: "160px" });
+      thumbnailObserver = observer;
+      Array.prototype.forEach.call(pendingThumbnails, function (preview) { thumbnailObserver.observe(preview); });
+    } else {
+      Array.prototype.forEach.call(pendingThumbnails, loadThumbnail);
+    }
 
     Array.prototype.forEach.call(host.querySelectorAll("[data-open]"), function (button) {
       button.onclick = app.components.ui.action(async function () {

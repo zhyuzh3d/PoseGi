@@ -66,8 +66,13 @@ function makeForm() {
   /* 这份按钮数组必须在同一个表单内保持不变 —— onMount 给它们赋 onclick,
      之后测试再取一次来点。每次都新建的话,点到的是另一个对象,onclick 是空的。 */
   const editButtons = editIds.map((id) => ({ dataset: { edit: id }, onclick: null }));
+  const languageButtons = ["system", "zh", "en"].map((language) => ({
+    dataset: { language }, onclick: null,
+    classList: { add() {}, remove() {} }, setAttribute() {}
+  }));
   return {
     nodes,
+    languageButtons,
     querySelector(selector) {
       const named = /^\[name="([^"]+)"\]$/.exec(selector);
       if (named) return nodes[named[1]] || null;
@@ -82,14 +87,19 @@ function makeForm() {
     querySelectorAll(selector) {
       if (selector === 'input[type="range"]') return [];
       if (selector === "[data-edit]") return editButtons;
+      if (selector === "[data-language]") return languageButtons;
       return [];
     }
   };
 }
 
 const toasts = [];
+let closeSheetCalls = 0;
 /* saveModel 从 document 里取当前弹窗内容,所以这个替身也要在 */
-globalThis.document = { getElementById: (id) => (id === "modal-content" ? lastForm : null) };
+globalThis.document = {
+  getElementById: (id) => (id === "modal-content" ? lastForm : null),
+  querySelectorAll: () => []
+};
 app.components.ui = {
   openSheet(options) {
     const form = makeForm();
@@ -98,7 +108,7 @@ app.components.ui = {
     if (typeof options.onMount === "function") options.onMount(form);
     return form;
   },
-  closeSheet() {},
+  closeSheet() { closeSheetCalls += 1; },
   toast(message) { toasts.push(message); },
   action(fn) { return fn; },
   confirm: async () => true
@@ -188,8 +198,8 @@ fieldValues = {
 };
 app.components.settings.openAddModel();
 assert.equal(endpointValueIn(lastBody), app.defaults.chpEndpoint, "还没填过地址时,表单要预填样例地址");
-assert.ok(String(app.defaults.chpEndpoint).indexOf(":8189/chp") > 0,
-  "样例地址必须带 /chp —— 同一台机器的 8188 是另一个服务,照着填必错");
+assert.equal(app.defaults.chpEndpoint, "http://192.168.1.1:8189",
+  "默认 CHP 根地址使用 8189 端口");
 
 /* 用户没改这一格,直接保存 —— 表单里读到的就是预填的那条 */
 lastForm.nodes.endpoint.value = app.defaults.chpEndpoint;
@@ -215,16 +225,14 @@ assert.equal(app.config.connection.endpoint, CUSTOM_ENDPOINT, "只是打开表�
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(root, "tests/fixtures/chp-info-3.1.0.json"), "utf8"));
 const INFO = CHP_ENDPOINT + "/info";
 const askedUrls = [];
-app.platform.haminn = {
-  request: async (options) => {
+app.platform.haminn.request = async (options) => {
     const url = String(options.url);
     askedUrls.push(url);
     return url === INFO
       ? { status: 200, bodyText: JSON.stringify(FIXTURE) }
       : { status: 404, bodyText: "" };
-  },
-  httpError: (response) => new Error("HTTP " + response.status)
-};
+  };
+app.platform.haminn.httpError = (response) => new Error("HTTP " + response.status);
 new Function(fs.readFileSync(path.join(root, "app/services/providers.js"), "utf8"))();
 
 app.config.connection = { endpoint: CHP_ENDPOINT, apiKey: CHP_PASSWORD, customHeaders: "" };
@@ -260,5 +268,45 @@ assert.ok(renderLine.indexOf("qwen2.1") >= 0,
 assert.ok(renderLine.indexOf("unet ") >= 0 && renderLine.indexOf("vae ") >= 0,
   `三件文件名要印;收到:${renderLine}`);
 assert.ok(renderLine.indexOf("768x1344") >= 0, `有竖幅就把那一条印出来;收到:${renderLine}`);
+
+/* 软件设置语言与提示词均为草稿,必须点保存才写入配置并生效。 */
+app.i18n.setLanguage("zh");
+fieldValues = { posePrefix: app.defaults.generation.posePrefix.zh };
+app.components.settings.openPreferences();
+assert.ok(lastBody.indexOf("中文提示词") >= 0 && lastBody.indexOf("English instruction") < 0 &&
+  lastBody.indexOf("自动添加的姿势提示词") >= 0 && lastBody.indexOf(app.defaults.generation.posePrefix.zh) >= 0,
+  "中文界面只显示中文自动提示词");
+assert.equal((lastBody.match(/name="posePrefix"/g) || []).length, 1, "设置里只出现一个提示词编辑框");
+const priorLanguage = app.config.preferences.language;
+lastForm.languageButtons[1].onclick();
+const zhPrefix = lastForm.querySelector('[name="posePrefix"]');
+zhPrefix.value = "用户刚编辑的中文规则";
+zhPrefix.oninput();
+assert.equal(app.config.generation.posePrefix.zh, app.defaults.generation.posePrefix.zh,
+  "未保存前编辑不能改动生图配置");
+assert.equal(app.config.preferences.language, priorLanguage, "未保存前选择语言不能生效");
+const closeCallsBeforeSave = closeSheetCalls;
+await lastForm.querySelector("[data-preferences-save]").onclick();
+assert.equal(closeSheetCalls, closeCallsBeforeSave, "保存设置不能关闭弹窗");
+assert.equal(app.config.generation.posePrefix.zh, "用户刚编辑的中文规则", "保存后中文提示词生效");
+assert.equal(app.config.preferences.language, "zh", "保存后语言设置生效");
+
+fieldValues = { posePrefix: app.config.generation.posePrefix.zh };
+app.components.settings.openPreferences();
+lastForm.languageButtons[2].onclick();
+const enPrefix = lastForm.querySelector('[name="posePrefix"]');
+assert.ok(enPrefix.value.indexOf("Reference image 1 shows the character's limb pose") === 0,
+  "选择英文设置时显示英文提示词草稿");
+enPrefix.value = "edited English instruction";
+enPrefix.oninput();
+await lastForm.querySelector("[data-preferences-save]").onclick();
+assert.equal(app.config.preferences.language, "en", "英文选择点击保存后才生效");
+assert.equal(app.config.generation.posePrefix.en, "edited English instruction", "保存后英文提示词生效");
+fieldValues = { posePrefix: app.config.generation.posePrefix.en };
+app.components.settings.openPreferences();
+assert.ok(lastBody.indexOf("English instruction") >= 0 &&
+  lastBody.indexOf("edited English instruction") >= 0 &&
+  lastBody.indexOf("用户刚编辑的中文规则") < 0,
+  "英文界面只显示英文自动提示词");
 
 console.log("settings.test.mjs: ok");

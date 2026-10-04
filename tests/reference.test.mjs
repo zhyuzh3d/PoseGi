@@ -161,6 +161,12 @@ function ratioMatches(width, height) {
   assert.match(viewportSource, /offsetY = box\.y;/, "纵向裁掉的量要真的从落点上减掉");
   assert.match(viewportSource, /app\.skeleton\.image\(poseSegments\(/,
     "参考图必须由骨架渲染器画(而且要拿投影出来的线段)—— 退回截图等于这一整条作废");
+  assert.match(viewportSource, /projected\.depth\s*=\s*-scratchA\.copy\(point\)\.applyMatrix4\(state\.camera\.matrixWorldInverse\)\.z/,
+    "视口投影必须保留节点到摄像机的视线深度,遮挡不能再依赖连线表顺序");
+  assert.match(viewportSource, /state\.camera\.updateMatrixWorld\(true\)/,
+    "读取节点深度前必须刷新摄像机世界矩阵,避免沿用上一视角的遮挡关系");
+  assert.match(viewportSource, /aDepth:\s*a\.depth[\s\S]*?bDepth:\s*b\.depth[\s\S]*?depth:\s*center\.depth/,
+    "每根投影骨杆必须把两端节点与骨杆中点深度交给彩色骨架绘制器");
   assert.match(viewportSource, /width:\s*outWidth,\s*height:\s*outHeight,/,
     "交给骨架渲染器的是**裁完之后**的尺寸,不是取景窗口的尺寸");
 

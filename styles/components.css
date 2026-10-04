@@ -51,7 +51,7 @@
 .modal-backdrop { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: rgba(20,22,28,.42); }
 
 /* 点选之后不留外框(2026-09-30 用户要求两处:「工具弹窗自身和内部元素,点选的时候不要有
-   外部的外框显示」、「全屏查看渲染图……底部四个工具按钮点击不要出现额外的外框」)。
+   外部的外框显示」、「全屏查看渲染图……底部工具按钮点击不要出现额外的外框」)。
    三处都在画那个框,所以三处一起管:
      · `.modal-sheet` 带 tabindex="-1",点它自己的空白(比如标题右边那片)就会聚焦,
        UA 于是给**整块面板**描一圈 —— 那正是"弹窗自身有外框";
@@ -330,23 +330,32 @@
 .gallery-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
 .art-card { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-strong); }
-.art-open { display: block; width: 100%; min-height: 92px; padding: 10px; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.art-open { display: block; width: 100%; padding: 8px; border: 0; background: transparent; color: var(--ink); text-align: left; }
 .art-current {
-  display: inline-block; margin-bottom: 6px; padding: 1px 7px; border-radius: 9px;
+  position: absolute; z-index: 2; left: 6px; top: 6px;
+  display: inline-block; padding: 1px 7px; border-radius: 9px;
   background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 600;
 }
-/* 预览区里放的是提示词。给一个固定高度 + 裁切:一件作品的描述长短差很远,
-   不裁的话两列网格会被最长的那条撑出一堆空白。 */
+.art-preview {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 112px; margin-bottom: 8px; overflow: hidden;
+  border-radius: 8px; background: var(--surface);
+}
+.art-preview > i { color: var(--muted); font-size: 27px; opacity: .72; }
+.art-thumbnail { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.art-preview.has-image > i { display: none; }
+/* 描述固定为单行,省略长内容,让缩略图和成图信息保持紧凑。 */
 .art-prompt {
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-  overflow: hidden; min-height: 46px;
-  font-size: 11.5px; line-height: 1.45;
+  display: block; overflow: hidden; height: 17px;
+  white-space: nowrap; text-overflow: ellipsis;
+  font-size: 11.5px; line-height: 17px;
 }
 .art-prompt em { color: var(--muted); }
-.art-badge { display: block; margin-top: 8px; color: var(--muted); font-size: 10.5px; }
+.art-summary { display: flex; align-items: center; justify-content: space-between; min-width: 0; margin-top: 7px; }
+.art-badge { flex: 0 0 auto; color: var(--muted); font-size: 10.5px; }
+.art-date { flex: 0 1 auto; overflow: hidden; margin-left: 6px; color: var(--muted); font-size: 10px; white-space: nowrap; text-align: right; }
 .art-meta { padding: 8px 9px; border-top: 1px solid var(--line); }
 .art-title { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.art-date { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
 .art-actions { display: flex; align-items: center; margin-top: 8px; }
 .art-actions .button { flex: 1 1 auto; min-height: 32px; padding: 5px 10px; font-size: 12px; }
 .art-actions .icon-button { margin-left: 4px; }
@@ -433,7 +442,7 @@
   pointer-events: none;
 }
 
-/* 工具条浮在底部中间:三颗按钮,拇指够得到。毛玻璃 + 一道亮边,
+/* 工具条浮在底部中间:调色、复位、下载、删除、关闭。毛玻璃 + 一道亮边,
    与顶栏同一套材料 —— 它同样压在图片上。
    黑纱与顶栏共用 --glass-veil(2026-09-30 用户要求「所有毛玻璃背景都变暗一些」):
    它压的是成图本身,底色比场景更不可控,压暗之后白色图标更立得住。 */

@@ -1,4 +1,4 @@
-/* 彩色骨架渲染器:键位映射、缺骨头的处理、脸点阵、按画幅等比换算、以及"真的落了像素"
+/* 彩色骨架渲染器:键位映射、深度排序、缺骨头的处理、脸点阵、按画幅等比换算、以及"真的落了像素"
  *
  * 这一份钉的是**发给模型的那张控制图本身**,因为它有两类错误都**不报错**:
  *   1. 键位错位(把膝当成踝、把左手接到右边)⇒ 图照画、模型照收,只是姿势不对;
@@ -234,7 +234,33 @@ const near = (got, want, message, tolerance = 1e-6) => {
     "这一具骨架整整齐齐落在画布里");
 }
 
-/* ---------- 7) 透明底与"不画"这两条出路 ---------- */
+/* ---------- 7) 相机深度控制遮挡:前臂更近时必须画在躯干之后 ---------- */
+{
+  const armBones = new Set(["shoulder.R", "upperArm.R", "forearm.R"]);
+  const depthFixture = (armDepth, bodyDepth) => segs.map((segment) => {
+    const depth = armBones.has(segment.joint) ? armDepth : bodyDepth;
+    return Object.assign({}, segment, { aDepth: depth, bDepth: depth, depth });
+  });
+  const colorAt = (index) => {
+    const color = skeleton.palette[index];
+    return `rgb(${color[0]},${color[1]},${color[2]})`;
+  };
+  const bodyBehindArm = recorder();
+  skeleton.paint(bodyBehindArm.ctx, depthFixture(0.1, 0.9), { width: 576, height: 1024 });
+  const frontStrokes = bodyBehindArm.calls.filter((call) => call.op === "stroke");
+  assert.ok(frontStrokes.findIndex((call) => call.stroke === colorAt(6)) <
+    frontStrokes.findIndex((call) => call.stroke === colorAt(2)),
+  "摄像机空间深度更远的躯干先画,更近的上臂后画并覆盖躯干");
+
+  const armBehindBody = recorder();
+  skeleton.paint(armBehindBody.ctx, depthFixture(0.9, 0.1), { width: 576, height: 1024 });
+  const rearStrokes = armBehindBody.calls.filter((call) => call.op === "stroke");
+  assert.ok(rearStrokes.findIndex((call) => call.stroke === colorAt(2)) <
+    rearStrokes.findIndex((call) => call.stroke === colorAt(6)),
+  "相机转到另一侧后深度关系反转,上臂应退到躯干后面");
+}
+
+/* ---------- 8) 透明底与"不画"这两条出路 ---------- */
 {
   const transparent = recorder();
   const stats = skeleton.paint(transparent.ctx, segs, { width: 576, height: 1024, background: null });
@@ -251,7 +277,7 @@ const near = (got, want, message, tolerance = 1e-6) => {
     "缺骨头时那张图仍然是纯黑(不是透明):模型收到一张没有姿势的黑图,而不是一堵墙");
 }
 
-/* ---------- 8) image():自己开画布,返回值形状与 viewport.captureAt 一致 ---------- */
+/* ---------- 9) image():自己开画布,返回值形状与 viewport.captureAt 一致 ---------- */
 {
   const before = created.length;
   const image = skeleton.image(segs, { width: 1152, height: 2048, azimuth: 0 });
@@ -276,5 +302,5 @@ const near = (got, want, message, tolerance = 1e-6) => {
   assert.equal(jpeg.mime, "image/jpeg", "显式要 JPEG 时才给 JPEG");
 }
 
-console.log("skeleton.test.mjs: ok (18 色/17 连线、18 个键位逐点对上、缺骨头当场不画、"
+console.log("skeleton.test.mjs: ok (18 色/17 连线、18 个键位逐点对上、相机深度遮挡排序、缺骨头当场不画、"
   + "68 点脸与 0.30 侧脸下限、按画幅等比换算、落笔的次序与颜色、透明底、image 的返回形状)");

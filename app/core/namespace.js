@@ -12,7 +12,7 @@
   /* 与 haminn.json 的 version.name 必须一致(tests/rig.test.mjs 守着)。
      上一轮发版只改了 haminn.json(code 3 / 0.1.1),这里漏了 —— 于是界面上
      顶着「v0.1.0」而装上去的包里写着 0.1.1。以 haminn.json 为准,这里跟上。 */
-  app.version = "0.1.22";
+  app.version = "0.1.24";
 
   /* 主题锁:本应用不做主题切换(设置里没有这一项),一律深色。
      2026-09-25 用户决定 —— 之前跟着系统 prefers-color-scheme 走,新设备系统非深色
@@ -114,8 +114,8 @@
        它是可编辑的提示词内容,不是界面文案。"添加作品"表单与 newWork 共用这一份。 */
     newWork: {
       prompt: {
-        zh: "一个正在跳舞的中国美女，健康体型，平视。",
-        en: "A beautiful Chinese woman dancing, with a healthy physique, viewed at eye level."
+        zh: "一位健康体型的中国成年女性，全身像，平视，简洁背景。",
+        en: "A healthy adult Chinese woman, full-body view, eye level, with a simple background."
       }
     },
     /* CHP(ComfyUI Haminn Protocol)的连接是**一套**:地址、密码、自定义头。
@@ -123,10 +123,9 @@
        每张卡各填一份地址只会让人重复劳动,还会出现"两张卡填了不同地址"的鬼状态。
        非 CHP 的卡(OpenAI Images / SD WebUI / Stability)各有各的 endpoint。 */
     connection: { endpoint: "", apiKey: "", customHeaders: "" },
-    /* 还没填过 CHP 地址时,「服务器地址」里预填的那条样例 —— 只有 IP 是要改的地方,
-       所以它本身不是一个能直接用的地址,是给用户照着改的。
-       (2026-09-26 用户要求:**已经填过就绝不去动它**,只在配置里还没有地址时才填这一条。) */
-    chpEndpoint: "http://192.168.1.31:8189/chp",
+    /* 还没填过 CHP 地址时,「服务器地址」里预填的默认根地址。8189 是 CHP 默认端口;
+       已经保存过的地址保持原样,只在配置为空时使用这一条。 */
+    chpEndpoint: "http://192.168.1.1:8189",
     /* 宽高比**锁死 9:16**(2026-09-30 用户定):参考图、CHP 的画幅、别的接口的输出
        全部按竖屏构图。这不是"一个默认值",是产品口径 —— 所以它只有一个出处,
        谁都不许自己拼一个比例出来(旧的 `aspect_ratio: "1:1"` 那种写法也一并消掉)。 */
@@ -219,7 +218,13 @@
     },
     generation: {
       prompt: "",
-      negativePrompt: "low quality, distorted, extra limbs, watermark, text"
+      negativePrompt: "low quality, distorted, extra limbs, watermark, text",
+      /* 生图时自动前置的姿势控制说明。按作品描述的语言选用对应版本；
+         用户可在「软件设置」里编辑，留空即可停用该语言的自动前缀。 */
+      posePrefix: {
+        zh: "参考图1是角色肢体姿势，请严格遵守肢体节点的位置进行生成。",
+        en: "Reference image 1 shows the character's limb pose. Generate the image by strictly following the positions of the body joints."
+      }
     }
   };
 

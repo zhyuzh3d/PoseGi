@@ -233,11 +233,11 @@ app.platform.haminn = {
 /* ---------- 8) 新建作品:默认描述 + 未命名序号 + 记下"最近使用" ---------- */
 {
   assert.equal(store.defaultPrompt(), app.defaults.newWork.prompt.zh, "用户定的默认角色描述");
-  assert.equal(app.defaults.newWork.prompt.zh, "一个正在跳舞的中国美女，健康体型，平视。",
-    "新建作品默认中文描述要使用用户指定的舞蹈人物场景");
+  assert.equal(app.defaults.newWork.prompt.zh, "一位健康体型的中国成年女性，全身像，平视，简洁背景。",
+    "新建作品默认中文描述不应再指定与骨架冲突的舞蹈姿势");
   assert.equal(app.defaults.newWork.prompt.en,
-    "A beautiful Chinese woman dancing, with a healthy physique, viewed at eye level.",
-    "英文界面要使用对应的默认描述");
+    "A healthy adult Chinese woman, full-body view, eye level, with a simple background.",
+    "英文界面要使用对应的中性默认描述");
   assert.equal(store.untitledTitle(), "未命名作品1");
 
   await store.newWork("");

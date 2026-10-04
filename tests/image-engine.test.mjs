@@ -60,10 +60,9 @@ app.platform.haminn = {
   }
 };
 
-/* 用户原话(逐字)。测试**不复述自己的常量** —— 它要求模块导出的那一句
-   与这里相同,于是"改了那句话"与"改了这条要求"必须同时发生。 */
-const ZH = "参考图1只做姿势参考，不要使用参考图中角色的人物外形、发型或服饰等任何外观特征。";
-const EN = "Reference image 1 is for pose reference only. Do not use any appearance features of the character in the reference image, such as their body shape, hairstyle, or clothing.";
+/* 用户要求自动前缀逐字加入姿势对齐、左右辨识和“不画出骨架”的约束。 */
+const ZH = app.defaults.generation.posePrefix.zh;
+const EN = app.defaults.generation.posePrefix.en;
 
 /* 生成链路上三个出口各截一份:发给模型的那份 / 记进作品的那份 / 截图口被调了几次 */
 let sent = null;
@@ -143,7 +142,7 @@ function lastRecord() { return recorded[recorded.length - 1]; }
   await runWith("");
 
   assert.equal(sent.prompt, EN, "空描述时前缀就是全部内容,按界面语言取英文那句");
-  assert.equal(sent.prompt.charAt(0), "R", "不许留下一个空行开头");
+  assert.equal(sent.prompt.charAt(0), EN.charAt(0), "不许留下一个空行开头");
   assert.equal(lastRecord().prompt, "", "记进作品的是空描述(用户真的没写)");
   app.i18n.setLanguage("zh");
 }
@@ -326,6 +325,17 @@ function lastRecord() { return recorded[recorded.length - 1]; }
   preflightOk = true;
 }
 
-console.log("image-engine.test.mjs: ok (提交时提示词开头补姿势参考那一句、原句一字不动、"
+/* ---------- 12) 设置里的前缀下一次生成立即生效,留空可以关闭 ---------- */
+{
+  app.config.generation = { posePrefix: { zh: "用户编辑的中文指令", en: "" } };
+  activeCard = CHP;
+  await runWith("中文作品描述");
+  assert.equal(sent.prompt, "用户编辑的中文指令\n中文作品描述", "读取设置里最新的中文前缀");
+
+  await runWith("custom image prompt");
+  assert.equal(sent.prompt, "custom image prompt", "英文前缀留空时不再自动添加");
+}
+
+console.log("image-engine.test.mjs: ok (提交时添加中英文可配置姿势说明、原句一字不动、"
   + "要英文的卡自动翻一次并把译文发出去、同一句只翻一次、CHP 卡与不需要英文的卡一次都不翻、"
   + "没配好或翻失败都照发不拦、前缀不进作品记录)");

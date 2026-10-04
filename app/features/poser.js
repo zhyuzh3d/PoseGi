@@ -94,6 +94,12 @@
     return angles;
   }
 
+  /* 只摆正骨盆与骨架根,不重置脊柱、四肢等关节,因此已有姿势得以保留。 */
+  function straightenBody() {
+    var defaults = app.rig.defaultAngles();
+    return patchJoints({ hips: defaults.hips, broot: defaults.broot }, "straighten");
+  }
+
   /* 回到默认站姿。silent 用于"换人物造型"这类要连骨架一起换的场景:
      中间那一次重绘是旧网格配新骨架,虽然只有一帧,但会闪一下;
      静默复位之后由调用方统一重画一次。 */
@@ -145,6 +151,7 @@
     selectJoint: selectJoint,
     applyPreset: applyPreset,
     mirror: mirrorNow,
+    straightenBody: straightenBody,
     reset: resetNow,
     /* 作品文档里的姿态:snapshot 取当前这一份,restore 把存下来的装回去 */
     snapshot: snapshot,

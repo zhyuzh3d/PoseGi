@@ -95,6 +95,11 @@
     result.newWork = app.utils.merge(defaults.newWork, source.newWork || {});
     result.render = app.utils.merge(defaults.render, source.render || {});
     result.generation = app.utils.merge(defaults.generation, source.generation || {});
+    var storedPosePrefix = source.generation && source.generation.posePrefix;
+    if (!storedPosePrefix || Object.prototype.toString.call(storedPosePrefix) !== "[object Object]") {
+      storedPosePrefix = {};
+    }
+    result.generation.posePrefix = app.utils.merge(defaults.generation.posePrefix || {}, storedPosePrefix);
     result.reference = app.utils.merge(defaults.reference, source.reference || {});
     result.limits = app.utils.merge(defaults.limits, source.limits || {});
     /* 模型卡:旧版本存下来的是"生图接口"(单一 generation 配置),没有 models 数组 ——
@@ -492,6 +497,17 @@
     return record && record.value ? record.value : null;
   }
 
+  /* 列表卡只取最近一张成图作缩略图,不把图片字节塞进作品索引。 */
+  async function latestThumbnail(id) {
+    var record = await queryWork(id);
+    var results = record && Object.prototype.toString.call(record.results) === "[object Array]" ? record.results : [];
+    if (!results.length) return "";
+    var item = results[results.length - 1];
+    var asset = item.asset || (item.logicalFileId ? { parts: [item.logicalFileId], mime: "image/png" } : null);
+    try { return await app.services.assets.resolve(asset); }
+    catch (error) { return ""; }
+  }
+
   /* 把作品装进运行时状态:成图的 src 先解出来,界面不必自己判空 */  async function hydrate(record) {
     if (!record) return null;
     var value = {
@@ -748,6 +764,7 @@
     loadConfig: loadConfig,
     saveConfig: saveConfig,
     listWorks: listWorks,
+    latestThumbnail: latestThumbnail,
     openWork: openWork,
     newWork: newWork,
     updateWork: updateWork,

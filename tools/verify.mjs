@@ -554,8 +554,8 @@ for (const file of sourceFiles.filter((name) => name.endsWith(".css"))) {
   const settings = fs.readFileSync(path.join(root, "app/components/settings.js"), "utf8");
   assert.equal(/搬运/.test(settings), false,
     "帮助里不该再写「搬运」—— 界面里已经找不到那一项了,用户照着找会以为是坏的");
-  assert.match(settings, /「工具」里两件事/,
-    "帮助要把「工具」说成两件事(左右镜像 / 相机归位)");
+  assert.match(settings, /「工具」里可以左右镜像、身体摆正并保留肢体姿势,也可以让相机归位/,
+    "帮助要准确说明工具的三项操作(左右镜像 / 身体摆正 / 相机归位)");
 }
 
 /* 4o. 界面上的场景清单与它们的名字、说明一律来自插件(2026-09-30 用户要求:

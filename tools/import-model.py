@@ -85,10 +85,9 @@ SOURCES = {
             "Arm.L_011": [("shoulder.L", 0.30), ("upperArm.L", 1e9)],
             "Arm.R_08": [("shoulder.R", 0.30), ("upperArm.R", 1e9)],
         },
-        # 站姿的"旋前旋后":绑定姿态的两只手是掌心朝侧面的(正面看只有一条窄边),
-        # 正面背面分不出来。这里把前臂绕自身长轴拧到掌心朝正前方(解剖学站姿)。
-        # 角度是用"掌面法线 = 手局部 ±X"这根材料轴扫出来的(见 build() 的说明)。
-        "twist": {"forearm.L": -91.1, "forearm.R": 91.0},
+        # 默认站姿让双手掌心朝内。模型的基础静止角就是这个方向,前臂不做额外旋前。
+        # 角度是模型静止角里的前臂长轴旋转值(见 build() 的说明)。
+        "twist": {"forearm.L": 0.0, "forearm.R": 0.0},
         # 拇指:模型的掌部是一把光板扁铲,没有拇指。拿掌部网格本身缩一份转到侧面并进去。
         # palm = 掌部的网格节点名 → 装到哪个关节。朝哪一侧不用配:见 add_thumbs 里的定向规则。
         "thumb": {
@@ -919,9 +918,7 @@ def add_thumbs(verts, cfg, frames, notes):
         u, v, w = palm_frame(pts, origin)
         # v 的符号是"算出来的",没有解剖含义:最大散布方向本身无符号,取到哪一端
         # 取决于扫描的起点。这里按解剖学钉死 —— 自然站姿垂手,掌心朝内、**拇指朝前**,
-        # 而角色朝 +Z,所以拇指所在的那一端是 +Z。这一条同时被配套的 twist 交叉验证:
-        # 前臂绕长轴拧 ~90 度把掌心从"朝内"转到"朝前",同一个旋转把这里的 +Z 送到 +X,
-        # 于是最终站姿里拇指朝身体外侧 —— 正面看得到,正是要的效果。
+        # 而角色朝 +Z,所以拇指所在的那一端是 +Z。前臂保持掌心朝内时,拇指自然朝前。
         if v[2] < 0:
             v = [-x for x in v]
             w = norm3(cross(u, v))
@@ -945,7 +942,7 @@ def add_thumbs(verts, cfg, frames, notes):
         for tri, span in parts:
             out.append(([(place(p), bone) for p, bone in tri], span, name))
         notes.append("  拇指:%s 由掌部网格复制缩放 %.2f、外偏 %.0f 度(长 %.0f mm → %.0f mm),"
-                     "伸出方向 (%.2f, %.2f, %.2f) ← 应为 +Z(前),twist 后即 +X(外侧)"
+                     "伸出方向 (%.2f, %.2f, %.2f) ← 应为 +Z(前)"
                      % (joint, scale, angle, (a1 - a0) * 1000, (a1 - a0) * scale * 1000,
                         tip[0], tip[1], tip[2]))
     return out
@@ -1179,16 +1176,14 @@ def build(model_id, spec):
             "length": 0.0,
             "radius": 0.05
         }
-    # --- 站姿的旋前旋后:让掌心朝正前方 -------------------------------------------
-    # 手是扁的(关节局部 55 × 215 × 68 mm),掌面法线就是局部 ±X。绑定姿态里两手的
-    # 掌心朝身体两侧 —— 正面看手是一条窄边,正反面分不出来。解剖学站姿要"掌心朝前".
+    # --- 模型指定的前臂静止旋转 -----------------------------------------------
+    # IKEA 默认角为 0,使掌心朝内;其他模型如需静止旋前可在 SOURCES.twist 中指定。
     # 旋前旋后是前臂绕自身长轴转,落在 rest 的 y 通道上;这里只改数值,网格仍在同一
     # 个局部系里(rest 是基准,limit 记的是相对 rest 的增量,所以姿态窗口一点没变)。
-    # 左右符号相反是因为两只手的网格是镜像的:左手掌心在局部 +X 侧、右手在 -X 侧。
     for name, deg in spec.get("twist", {}).items():
         if name in table:
             table[name]["rest"][1] = round(float(deg), 4)
-            notes.append("  站姿旋前旋后:%s 的 rest y 拧到 %.1f 度(掌心朝前)" % (name, deg))
+            notes.append("  模型静止旋转:%s 的 rest y 设为 %.1f 度" % (name, deg))
     for name in names_order:
         kids_j = children.get(name, [])
         if kids_j:
