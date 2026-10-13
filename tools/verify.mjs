@@ -611,6 +611,28 @@ for (const file of sourceFiles.filter((name) => name.endsWith(".css"))) {
     "关掉全屏看图要把收尾那一帧一起取消:关掉之后再去算一次全分辨率的逐像素,白花一次");
 }
 
+/* 4q. CHP 插件不再随 happ 分发(业主 2026-10-13):插件装在那台跑 ComfyUI 的电脑上,
+   本应用不带它的字节、也不往手机上下载,只在选到 CHP 时给一句说明加一个链接。
+   为什么值得一条门禁:三件事都**错得很安静** —— 换 target="_blank" 是点了不动、
+   往 URL 里加版本号是插件升版即过时、漏一句英文是中文系统上看不出来。 */
+{
+  const settings = fs.readFileSync(path.join(root, "app/components/settings.js"), "utf8");
+  /* 断言打在**锚点标签本身**上,而不是打在某一个写死的整串上:取到每一处指向 CHP 页的
+     锚点(模型卡表单底部与使用说明各一处),逐条看它的属性。这样它换了位置仍然管用。
+     数一下条数是有意的 —— 「链接还在不在」和「链接对不对」是两件事。 */
+  const anchors = settings.match(/<a[^>]*chp\.html[^>]*>/g) || [];
+  assert.equal(anchors.length, 4, "CHP 页的链接要四处都在:模型卡表单底部与使用说明,各写中英两份");
+  for (const anchor of anchors) {
+    assert.equal(/_blank/.test(anchor), false,
+      `链接不许新开标签页 —— 宿主把同帧外跳交给系统浏览器,新标签页在 happ 里静默无效:${anchor}`);
+    assert.equal(/\?v=|-\d+\.\d+\.\d+/.test(anchor), false,
+      `链接不许带版本号 —— 它被编译进三个 happ,插件一升版三个 happ 同时过时:${anchor}`);
+  }
+  assert.match(settings, /CHP 是 Haminn 综合入口程序：[\s\S]{0,120}?Haminn 官网下载/, "中文那句要写全,并说清去哪儿取");
+  assert.match(settings, /CHP is the Haminn Consolidated Portal:[\s\S]{0,160}?Get it from the Haminn website/,
+    "同一句的英文也要在 —— 这是双语界面,漏一半在英文系统上就是一片空白");
+}
+
 /* 5. 跨模块契约:调用了但没导出 */
 /* 解析对象字面量之前,先把注释"抹成等长空格"。
    为什么必须这么干:契约检查是按字符切对象的,它把**顶层逗号**当字段分隔符,

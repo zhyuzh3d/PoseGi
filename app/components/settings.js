@@ -258,6 +258,12 @@
     html += '<p class="connection-status" data-test-status></p>';
     html += '<p class="field-help">' + t("只向你配置的服务发送画面。局域网支持 HTTP;密码只在保存后存进当前应用。",
       "Images go only to your configured service. LAN HTTP is supported. Passwords are stored in this app after you save.") + "</p>";
+    if (chp) {
+      /* 插件装在那台跑 ComfyUI 的电脑上:这个 happ 不带它的字节,也不往手机上下载,
+         只给一句说明加一个普通链接。必须同帧导航 —— 外域跳转由宿主交给系统浏览器打开。 */
+      html += '<p class="field-help">' + t('CHP 是 Haminn 综合入口程序：装在运行 ComfyUI 那台电脑上，把本机模型统一成一个接口。请到 Haminn 官网下载：<a href="https://haminn.airen.life/chp.html">haminn.airen.life/chp.html</a>',
+        'CHP is the Haminn Consolidated Portal: it sits on the computer that runs ComfyUI and puts its local models behind one interface. Get it from the Haminn website: <a href="https://haminn.airen.life/chp.html">haminn.airen.life/chp.html</a>') + "</p>";
+    }
 
     var root = ui().openSheet({
       eyebrow: t("生成", "Generation"),
@@ -868,7 +874,7 @@
       ]) +
       helpSection(t("模型", "Models"), [
         helpLine(fa("fa-solid", "cubes"), t("接上自己的模型", "Connect a model"),
-          t("「添加模型」里选接口模式。推荐在本地 ComfyUI 装 CHP 插件(ComfyUI Haminn Protocol):插件自带快速生图、图像放大与高质量生图几套工作流,访问密码在插件的配置节点里设置。", "Pick an API format under Add model. Installing the CHP plugin (ComfyUI Haminn Protocol) on a local ComfyUI is recommended: it ships the quick, upscale and high-quality render workflows, and its password lives in the plugin's config node.")),
+          t("「添加模型」里选接口模式。推荐在本地 ComfyUI 装 CHP 插件(ComfyUI Haminn Protocol):插件自带快速生图、图像放大与高质量生图几套工作流,访问密码在插件的配置节点里设置。插件装在那台跑 ComfyUI 的电脑上,<a href=\"https://haminn.airen.life/chp.html\">到 Haminn 官网这一页下载</a>。", "Pick an API format under Add model. Installing the CHP plugin (ComfyUI Haminn Protocol) on a local ComfyUI is recommended: it ships the quick, upscale and high-quality render workflows, and its password lives in the plugin's config node. The plugin belongs on the computer that runs ComfyUI; <a href=\"https://haminn.airen.life/chp.html\">download it from this page</a>.")),
         helpLine(fa("fa-solid", "sliders"), t("画幅与参考图强度", "Canvas and reference strength"),
           t("CHP 卡的画幅与步数由插件的场景定义决定,界面上点「测试连接」就能读到插件当前的值;参考图强度(0–200,100 为中性)才是这一档的自由度:调高更贴渲染图,调低给模型更多自由。", "On a CHP card the canvas and step count come from the plugin's category definition — tap Test connection to read its current values. The reference strength (0–200, 100 neutral) is the free control: higher sticks closer to the render, lower frees the model.")),
         helpLine(fa("fa-solid", "circle-check"), t("切换与测试", "Switch and test"),
