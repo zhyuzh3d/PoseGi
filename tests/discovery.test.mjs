@@ -48,11 +48,18 @@ app.platform.haminn = {
     if (!route) return { status: 404, bodyText: "" };
     return { status: route.status, bodyText: JSON.stringify(route.body) };
   },
-  httpError: (response) => new Error("HTTP " + response.status)
+  /* 和真的宿主替身同形:抛出的是一个**带 `status` 的** Error。少了这个字段,任何
+     "按状态码分辨"的判据在这里都读不到东西 —— 而 401 与 404 的区别正是其中一条。 */
+  httpError: (response) => {
+    const error = new Error("HTTP " + response.status);
+    error.status = response.status;
+    return error;
+  }
 };
 
 new Function(fs.readFileSync(path.join(root, "app/services/providers.js"), "utf8"))();
 const providers = app.services.providers;
+const internals = providers.internals;
 
 const FIXTURE = JSON.parse(fs.readFileSync(
   path.join(root, "tests/fixtures/chp-info-3.1.0.json"), "utf8"));
@@ -321,5 +328,98 @@ async function probe(document, task, endpoint) {
   assert.deepEqual(asked, [HOST + "/sdapi/v1/sd-models"], "SD WebUI 还是问它自己的模型列表");
 }
 
+/* 8b) 信息接口回 401:那是一个**确定的答案**(地址对、是 CHP、钥匙不对),不是"地址不是
+       CHP 服务"。改之前这个状态码会落进 `answered`,再试一次候选,最后报成后者 —— 把用户
+       指去重装一个本来好好的插件。插件 3.2.0 起信息接口要 key,所以这一条是新出现的。 */
+{
+  asked = [];
+  routes = {};
+  routes[INFO_URL] = { status: 401, body: { error: "unauthorized", spec: "chp/2" } };
+  let message = "";
+  try { await providers.test(card("fast", BASE)); } catch (error) { message = String(error.message); }
+  assert.ok(message.indexOf("访问密码不正确") >= 0, `401 要报「访问密码不正确」,收到:${message}`);
+  assert.equal(message.indexOf("不是 CHP 服务") < 0, true, `401 不许说成「这个地址不是 CHP 服务」,收到:${message}`);
+  assert.deepEqual(asked, [INFO_URL], "401 要当场停:第二条候选不再试");
+}
+
+/* 8c) 403 forbidden_capability:这把 key 没被授权这个能力 —— 管理员的决定,不是装坏了。
+       它与宿主自己的能力授权是两件事,所以自己一句话。 */
+{
+  const error = internals.chpError(new Error("权限不足(403):forbidden_capability"));
+  assert.equal(error.message, "这把 key 没有这个能力,请让管理员在 CHP 控制台里为这个场景授权");
+}
+
+/* 10) 缓存按「地址 + key」分桶:同一台机器上两把 key 是两份文档。
+       文档是按 key 过滤过的,所以一份全局缓存会把 A 的帧表摆到 B 的卡上。 */
+{
+  const keyA = card("render", BASE); keyA.apiKey = "key-a"; keyA.resolution = "";
+  const keyB = card("render", BASE); keyB.apiKey = "key-b"; keyB.resolution = "";
+  const portrait = (value) => doc((copy) => {
+    copy.abilities.forEach((ability) => {
+      ability.frames = ability.frames.map((frame) => (
+        frame.ratio === "9:16" ? Object.assign({}, frame, { resolution: [value] }) : frame));
+    });
+  });
+  asked = []; routes = {};
+  routes[INFO_URL] = { status: 200, body: portrait("768x1344") };
+  await providers.test(keyA);
+  routes[INFO_URL] = { status: 200, body: portrait("832x1472") };
+  await providers.test(keyB);
+  // 现在"当前文档"是 B 的。拿 A 那张卡去读它真正会发出去的那条,必须读 A 的帧表。
+  assert.equal(internals.chpResolution(keyA), "768x1344",
+    "同一进程里换了一把 key,A 的帧表不许被 B 的覆盖");
+  assert.equal(internals.chpResolution(keyB), "832x1472", "B 那张卡必须按 B 的帧表挑");
+}
+
+/* 11) 插件 3.2.0 那一份(夹具按 A1X 真机的形状抓):多了**第九个顶层键** `speech`、
+       `endpoints` 多一条 `/chp/speech`、错误码表多四个 —— 本应用读的东西一个都没变。
+       这条判据只有**真的拿那份文档走一遍**才算数:第九个键是个新形状,而语音那条规则
+       住在 `speech.rules` 里,它**不是**本应用的图片场景。
+       3.1.0 那份仍然在(上面每一条用例都指着它),两份并存才证明得了"向前兼容"。 */
+{
+  const NEXT = JSON.parse(fs.readFileSync(
+    path.join(root, "tests/fixtures/chp-info-3.2.0.json"), "utf8"));
+  assert.equal(NEXT.spec, "chp/2", "新版本没有换契约大版本");
+  assert.equal(NEXT.plugin.version, "3.2.0", "这一份夹具就是 3.2.0");
+  assert.equal(NEXT.endpoints.speech, "/chp/speech", "第八个 endpoint 就是语音那条");
+  assert.deepEqual(Object.keys(NEXT.endpoints).length, 8, "endpoints 是八个键");
+
+  const result = await probe(NEXT, "render");
+  assert.equal(result.ok, true, "多一个顶层键不该让「测试连接」失败");
+  assert.equal(result.version, NEXT.plugin.version, "版本仍取 plugin.version");
+  assert.equal(result.resolution, "768x1344", "画幅还是从能力帧表里挑 9:16 那一档");
+  assert.deepEqual(result.resolutions, ["768x1344", "512x896", "896x1568"]);
+  assert.equal(result.englishOnly, false, "render 照旧声明 language:any");
+  assert.equal(providers.internals.chpKnown("speak"), false,
+    "`speak` 是语音段的场景,不是本应用的图片场景 —— 两种 rules 不许混成一张清单");
+  assert.deepEqual(providers.internals.chpCategories(), ["fast", "upscale", "render", "generate"],
+    "图片侧的场景清单照旧就是那四条");
+  assert.equal(providers.internals.chpTakesImage(providers.internals.chpRule("generate")), false,
+    "纯文生图那条路照旧不带参考图");
+}
+
+/* 12) 同一台机器、一把**受限的 key**:插件按 key 过滤过文档(规则/能力/输入 schema 都少),
+       `speech` 段是三张空表。本应用要读**筛过的那份**,而不是自己记的那份;而那个没被
+       授权的场景要如实说成"插件没给",不能崩在空表上、也不能装作还能用 ——
+       「权限不够」与「插件太老」是两句话,得分开。 */
+{
+  const LIMITED = JSON.parse(fs.readFileSync(
+    path.join(root, "tests/fixtures/chp-info-3.2.0-fast-only.json"), "utf8"));
+  assert.deepEqual(LIMITED.speech, { rules: [], abilities: [], input_schemas: {} },
+    "受限 key 看到的是三张空表,不是缺键 —— 两种状态要分得开");
+  assert.equal(LIMITED.rules.length, 1, "这一份夹具里只剩被授权的那一条规则");
+
+  const allowed = await probe(LIMITED, "fast");
+  assert.equal(allowed.ok, true, "这把 key 能用的那个场景照旧能用");
+  assert.equal(allowed.model, "DreamShaper8_LCM.safetensors", "模型还是从能力里读");
+  assert.deepEqual(providers.internals.chpCategories(), ["fast"],
+    "清单要读插件筛过的那份,不是本应用自己记得的那份");
+  let message = "";
+  try { await probe(LIMITED, "render"); } catch (error) { message = String(error.message); }
+  assert.ok(message.indexOf("升级") >= 0,
+    `没被授权的场景要说清是插件这边没给,收到:${message}`);
+}
+
 console.log("discovery.test.mjs: ok (一次自描述、category 无别名、画幅只读帧表里 9:16 那一档、"
-  + "没有竖幅就是空清单、模型来自 files、语言如实上报、密码/身份/版本分开报、地址归一化)");
+  + "没有竖幅就是空清单、模型来自 files、语言如实上报、密码/身份/版本分开报、地址归一化、"
+  + "缓存按「地址 + key」分桶、3.2.0 那份新文档向前兼容)");

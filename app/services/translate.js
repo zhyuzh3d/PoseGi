@@ -74,7 +74,7 @@
    * Gemini 要 x-goog-api-key —— 用错头只会换来一句语焉不详的 401。 */
   var PROTOCOLS = {
     chp: {
-      zh: "CHP 插件（ComfyUI Haminn Protocol,推荐）", en: "CHP Plugin (ComfyUI Haminn Protocol, recommended)",
+      zh: "CHP 插件（CHPCP,推荐）", en: "CHP Plugin (CHPCP, recommended)",
       zhHelp: "插件自带翻译大模型,地址与密码就是生图那一套,不用另外申请 key。翻译路径也从插件文档的 endpoints 里读。",
       enHelp: "The plugin ships the translation model; the address and password are the same ones your image cards use. The translate path is read from the plugin document's endpoints too.",
       /* 这条只是输入框里的样例(占位符),与模型卡共用同一份出处 */

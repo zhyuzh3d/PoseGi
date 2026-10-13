@@ -57,8 +57,13 @@ MUTATIONS = [
      "        if (false) throw last;\n        if (attempt + 1 < POLL_RETRY) {"),
     ("终态判据不再认 401", PROVIDERS,
      "/unauthorized|401|unsupported_category", "/unauthorized|unsupported_category"),
+    # 锚点要带上 `bad_image|bad_mask|bad_request` 这一段 —— 它们是后来补进终态表的
+    # (参考图给错的两种、以及坏 body)。少了它们,锚点命中 0 次,这条变异会被记成
+    # "变异无效"而不是"没抓住",而两种都是红;差别只在于读的人会去错的地方找。
+    # 抓它的那一条是 retrieve ③:`chpTerminal` 恒真 ⇒ 取图失败不再翻成可续取,
+    # `error.recoverable` 就是 undefined —— 那张已经画好的图被当成死讯扔掉。
     ("瞬时错误当成终态(一律不重试)", PROVIDERS,
-     "    return /unauthorized|401|unsupported_category|unsupported_size|unsupported_steps|stretched_reference|no_model|invalid_workflow|能力已被拒绝|拒绝了此能力|CAPABILITY_DENIED/.test(text);",
+     "    return /unauthorized|401|unsupported_category|unsupported_size|unsupported_steps|stretched_reference|bad_image|bad_mask|bad_request|no_model|invalid_workflow|能力已被拒绝|拒绝了此能力|CAPABILITY_DENIED/.test(text);",
      "    return true;"),
     ("轮询退回裸请求", PROVIDERS,
      "var polled = await chpReadQuiet({ url: progressUrl, method: \"GET\", headers: headers(config), timeoutMs: 15000 });",
@@ -97,6 +102,20 @@ MUTATIONS = [
     ("改标题顺手把待取的作业抹掉", STORE,
      "    if (whole) {\n      app.state.document = work ? shapeDocument(work) : null;",
      "    app.state.pendingJob = work ? shapePending(work.pending) : null;\n    if (whole) {\n      app.state.document = work ? shapeDocument(work) : null;"),
+
+    # ---- 缓存按「地址 + key」分桶(2026-10-13):一台机器上两把 key 是两份文档 ----
+    # 文档是按 key 过滤过的,所以一份全局缓存会把 A 的能力摆到 B 的界面上 —— 最坏的是
+    # 受限 key 的屏幕列出全权 key 能做的事。
+    ("每个服务共用一份文档缓存", PROVIDERS,
+     '''    return String(config && config.endpoint || "").trim().replace(/\\/+$/, "") + "\\n" + String(config && config.apiKey || "");''',
+     '    return "";'),
+
+    # ---- 401 是一个确定的答案(2026-10-13):信息接口从插件 3.2.0 起需要 key ----
+    # 咽掉它,就会顺着第二条候选报成「这个地址不是 CHP 服务」—— 那句话等于叫用户去重装
+    # 一个本来好好的插件,是它唯一不许指的方向。
+    ("401 被咽掉,报成「这个地址不是 CHP 服务」", PROVIDERS,
+     '        if (Number(error && error.status) === 401) {\n          throw new Error(t("访问密码不正确,请在 ComfyUI 的 CHP 插件配置节点里核对密码",\n            "Wrong access password. Check the password set in the ComfyUI CHP plugin\'s config node."));\n        }\n',
+     ""),
 ]
 
 

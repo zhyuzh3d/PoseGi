@@ -5,7 +5,7 @@ PoseGi 是运行在 [Haminn](https://haminn.airen.life/) 宿主里的 3D 摆姿 
 > 官网：<https://posegi.airen.life/> · 源码仓库：<https://github.com/zhyuzh3d/PoseGi> · [下载安装包](https://haminn.airen.life/pages/happs.html#happ-life-airen-posegi) · [GitHub Releases](https://github.com/zhyuzh3d/PoseGi/releases) · [MIT License](./LICENSE)
 
 - happ id：`life.airen.posegi`
-- 当前源码版本：`0.1.22`(versionCode `23`,见 `haminn.json`)
+- 当前源码版本：`0.1.26`(versionCode `27`,见 `haminn.json`)
 - 形态：HaminnApp 的普通 happ,不能脱离宿主单独安装,纯原生 HTML / CSS / JavaScript,没有构建步骤
 - 3D 内核：内置 three.js r147(`vendor/three/`,随包分发,不联网加载)
 
@@ -20,7 +20,7 @@ PoseGi 是运行在 [Haminn](https://haminn.airen.life/) 宿主里的 3D 摆姿 
 - **姿态预设与镜像**：内置站姿,T 字,行走,举手,坐下五个预设,另有镜像与复位,预设按解剖学校正过(例如膝一律向后弯,髋前屈是 +x)。
 - **作品管理**：一件作品 = 标题 + 提示词 + 你自己保存的成图。作品列表可浏览,生成弹窗里是这件作品最近的 12 张成图,每张右上角的叉单独删掉那一张(槽位随之空出来),点图片本身全屏预览(双指缩放,拖动平移,双击复位),全屏里也能直接删。顶栏在版本号后面跟着显示当前作品的标题,写不下时末尾自动省略。
 - **全屏看图的调色面板**：亮度 / 对比度 / 饱和度 / 色相 / 梦幻辉光 / 清晰度六项(与 HamDraw 的全屏面板逐项相同),参数跟着作品走。清晰度是唯一逐像素的一步,所以它单独缓存、并只在它自己变化时重算 —— 拖其余五项时画面由 GPU 滤镜直接重画,不重算像素。
-- **自建「模型卡」生图**：不内置任何平台密钥,生图接口由你自己填。支持四类接口——CHP 插件（ComfyUI Haminn Protocol,推荐）,OpenAI Images 兼容,SD WebUI / Forge,Stability AI。提交的参考图固定 1024 边。
+- **自建「模型卡」生图**：不内置任何平台密钥,生图接口由你自己填。支持四类接口——CHP 插件（CHPCP,推荐）,OpenAI Images 兼容,SD WebUI / Forge,Stability AI。提交的参考图固定 1024 边。
 - **按接口该调的才给控件**：参考图强度,超时,自定义请求头 JSON。在 CHP 卡上**画幅由插件的帧表决定**(协议 `chp/2`,插件 3.1.1),界面上点一次「测试连接」就把插件当前公布的场景,模型文件与画幅读回来 —— 所以它是只读显示,不给你调出一个插件不认的值。**步数一个字节都不发**:它属于那台服务器自己的加速配置(蒸馏 LoRA 只在它自己配置的步数上生效),客户端报出去只会把配好的加速按回默认步数。
 - **按图重画与纯文生图分开**(2026-10-01)：插件的 `render` 现在特指「给定一张图重新生成」(规则 `txt-ref-2-img`),新分出的 `generate` 特指纯文字生成(规则 `txt-2-img`)。本应用读插件公布的那条 `signature` 里有没有 `ref` 来决定**附不附**那张渲染参考图 —— `generate` 收到参考图会被插件当场拒掉,所以判据不能写成本应用自己的一张场景名单。
 - **出好的图不会再丢**(2026-09-30)：CHP 这条路把「提交」和「取结果」分成两次请求,中间隔着几十秒,任何一次网络抖动都可能让一张已经画好的图取不回来。所以这一版做了三件事 —— 提交带**幂等键**(`chp/2` 的 `request_id`),同一次提交重发时服务端还你原来那个作业而不是再多画一张,于是提交也能安全重试了;作业一交出去就把它的 `job id` **写进作品文档**,杀进程,重启手机都还在;等待或取图失败时不再报一句「超时」了事,而是给一个**「重试取回」**——服务端那张图已经画好的话,点一下就拿回来,不必重画。
@@ -97,7 +97,7 @@ python3 tools/package.py --check      # 只校验不写入
 - **HamDraw**(实时 AI 绘图)：<https://hamdraw.airen.life/> · <https://github.com/zhyuzh3d/hamdraw>
 - **PoseGi**(3D 摆姿生图)：<https://posegi.airen.life/> · <https://github.com/zhyuzh3d/PoseGi> —— **本仓库**
 
-三个 happ 都必须先装 Haminn 宿主,再在[应用广场](https://haminn.airen.life/pages/happs.html)添加。PoseGi 与 Chataxi,HamDraw 互不依赖,只做相互推荐,生图接口可以复用 HamDraw 的 CHP 插件(ComfyUI Haminn Protocol,规范 `chp/2`,根 `/chp`)方式接入。
+三个 happ 都必须先装 Haminn 宿主,再在[应用广场](https://haminn.airen.life/pages/happs.html)添加。PoseGi 与 Chataxi,HamDraw 互不依赖,只做相互推荐,生图接口可以复用 HamDraw 的 CHP 插件(CHPCP,规范 `chp/2`,根 `/chp`)方式接入。
 
 ## 贡献
 

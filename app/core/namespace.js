@@ -12,7 +12,7 @@
   /* 与 haminn.json 的 version.name 必须一致(tests/rig.test.mjs 守着)。
      上一轮发版只改了 haminn.json(code 3 / 0.1.1),这里漏了 —— 于是界面上
      顶着「v0.1.0」而装上去的包里写着 0.1.1。以 haminn.json 为准,这里跟上。 */
-  app.version = "0.1.24";
+  app.version = "0.1.26";
 
   /* 主题锁:本应用不做主题切换(设置里没有这一项),一律深色。
      2026-09-25 用户决定 —— 之前跟着系统 prefers-color-scheme 走,新设备系统非深色
@@ -118,7 +118,7 @@
         en: "A healthy adult Chinese woman, full-body view, eye level, with a simple background."
       }
     },
-    /* CHP(ComfyUI Haminn Protocol)的连接是**一套**:地址、密码、自定义头。
+    /* CHP(Consolidated Haminn Portal)的连接是**一套**:地址、密码、自定义头。
        填一次,所有 protocol 为 chp 的模型卡一起生效 —— 插件本来就是一个进程,
        每张卡各填一份地址只会让人重复劳动,还会出现"两张卡填了不同地址"的鬼状态。
        非 CHP 的卡(OpenAI Images / SD WebUI / Stability)各有各的 endpoint。 */

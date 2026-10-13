@@ -26,7 +26,7 @@
  *   但**要不要附**由插件那条规则说了算:带 `ref` 的规则才附(见 chpTakesImage)。
  *
  * 选型说明(照抄 hamdraw 已经跑通的那一套):
- *   - chp(ComfyUI Haminn Protocol)是推荐路径:插件自带工作流,客户端只报场景名 +
+ *   - chp(Consolidated Haminn Portal)是推荐路径:插件自带工作流,客户端只报场景名 +
  *     画幅 + 参考图,而且成图由插件自己发,提交与取图共用一把密码。
  *   - sd-webui 最省事:一次 POST /sdapi/v1/img2img,参考图直接放 init_images。
  *   - openai-images 走 /v1/images/edits(multipart),纯文字走 /v1/images/generations。
@@ -41,7 +41,7 @@
   function t(zh, en) { return app.i18n ? app.i18n.text(zh, en) : zh; }
 
   var PROTOCOLS = [
-    { id: "chp", name: "CHP 插件（ComfyUI Haminn Protocol，推荐）",
+    { id: "chp", name: "CHP 插件（CHPCP，推荐）",
       description: "连接装有 CHP 插件的 ComfyUI。插件自带快速生图 / 图像放大 / 高质量生图几套工作流,不需要导出工作流 JSON;访问密码在插件的配置节点里设置。中文提示词由插件自己译成英文。" },
     { id: "openai-images", name: "OpenAI Images 兼容",
       description: "兼容 /v1/images/generations 与 /v1/images/edits,适合云端与兼容网关。" },
@@ -269,6 +269,9 @@
      卡上存的 `resolution` 只是"上次挑的那条" —— 它还在表里就沿用它(用户的选择),
      不在(插件改了表)就退回表里第一条。两条都没有 ⇒ 空串,调用方要当场说清原因。 */
   function chpResolution(config) {
+    /* 下面挑的那一条来自**这个服务**的帧表。少了这一行,一张卡会按上一次测过连接的那台
+       机器挑分辨率 —— 挑出来的往往是别的安装才发布的画幅。 */
+    chpAdopt(config);
     var task = chpTask(config);
     var list = chpResolutions(task);
     if (list.length) {
@@ -382,7 +385,7 @@
     return responseImage(response, requestHeaders);
   }
 
-  /* ---------- CHP —— ComfyUI Haminn Protocol（规范 chp/2） ----------
+  /* ---------- CHP —— Consolidated Haminn Portal（规范 chp/2） ----------
    *
    * 一个地址、四个场景。插件自带工作流,所以客户端只报**场景名 + 画幅 + 参考图**,
    * 从不发工作流 JSON;成图也由插件自己发,提交与取图共用同一把密码。
@@ -400,11 +403,35 @@
    * 插件声明 `spec` 不兼容时(不是 `chp/2`)这里**当场停下**,不拿旧规则继续猜。 */
   var CHP_SPEC = "chp/2";
 
-  /* 上一次信息接口拿到的文档。它是三件事的唯一出处:这个场景在不在、它能出哪些画幅、
-   * 参考图基准是多少。没测过连接时是 null,那时按出厂表发 —— 出厂值就是插件当前
-   * 帧表的默认档。 */
+  /* 每次会话读到的信息文档,**一个服务一桶**。
+   *
+   * 文档是按请求带的那把 key 过滤过的,而一把 key 有它自己被授权的场景 —— 所以只留一份
+   * 全局的,就会把 A 的能力摆到 B 的界面上;最坏的那种不是显示错乱:**受限 key 的屏幕上
+   * 列出全权 key 能做的事**。按「地址 + key」分桶,两个 key 打同一台机器也是两份文档。 */
+  var chpDocuments = {};
+  /* 上一次信息接口拿到的文档 —— 也就是下面那些读者现在回答的那一份。读者不带 config
+   * (渲染它们的代码手上没有),所以"哪一桶"是在**指名服务**的那两处选的:一次读完的
+   * 发现、以及判一个 config 的时候。它是三件事的唯一出处:这个场景在不在、它能出哪些
+   * 画幅、参考图基准是多少。没测过连接时是 null,那时按出厂表发。 */
   var chpDocument = null;
-  function chpRemember(document) { if (document && document.spec) chpDocument = document; return chpDocument; }
+  /* 什么算"同一个服务":原样那个地址(多一个尾斜杠不是另一台机器)+ 那把 key。
+     空 key 与写错的 key 是**两个不同的桶** —— 一个是"还没问过",一个是"有答案了"。 */
+  function chpBucketOf(config) {
+    return String(config && config.endpoint || "").trim().replace(/\/+$/, "") + "\n" + String(config && config.apiKey || "");
+  }
+  /* 把读者指向某个服务的那份文档,于是 chpRule / chpFrames / chpResolution 只可能回答
+     关于**它**的事。凡是手上有 config 的地方都调它。这个会话还没读过的服务保持原样:
+     没有更真的东西可放,而那正是"一张卡还没测过连接"时的状态。 */
+  function chpAdopt(config) {
+    var found = chpDocuments[chpBucketOf(config)];
+    if (found) chpDocument = found;
+    return chpDocument;
+  }
+  function chpRemember(document, config) {
+    var bucket = chpBucketOf(config);
+    if (document && document.spec) chpDocuments[bucket] = document;
+    return chpAdopt(config);
+  }
 
   /* 从用户填的地址里剥出服务根。
    *
@@ -515,6 +542,14 @@
         ensureOk(response, requestHeaders);
       } catch (error) {
         if (!firstError) firstError = error;
+        /* 401 也是一个**答案**,而且是确定的那个:地址对、答话的是 CHP、钥匙不对。
+           顺着往下试第二条候选,最后会报成「这个地址不是 CHP 服务」—— 那等于叫用户去
+           重装一个本来好好的插件,是这句话唯一不许指的方向。
+           (更早的版本里信息接口不要 key 也照答,所以那时没有这个状态码可读。) */
+        if (Number(error && error.status) === 401) {
+          throw new Error(t("访问密码不正确,请在 ComfyUI 的 CHP 插件配置节点里核对密码",
+            "Wrong access password. Check the password set in the ComfyUI CHP plugin's config node."));
+        }
         /* ComfyUI 自己的 web 根用 200 答一个页面,错路径用 404 —— 两个都是"有人答了"。
            真正没答上的是没有状态码那种(超时、连接被拒),那句错才值得留着往外报。 */
         if (Number(error && error.status) > 0) answered = true;
@@ -529,16 +564,18 @@
     throw firstError || new Error(t("连不上这个地址", "Could not reach that address"));
   }
 
-  /* 一次公开调用回答卡片上的全部问题:地址通不通、密码对不对、场景在不在、它的模型
-     装好没有、要不要先译英。信息接口是**公开**的(密码错了也照答,由 `auth.authorized`
-     说明),所以前两件事一次问清,不用靠第二次失败去分辨。 */
+  /* 一次调用回答卡片上的全部问题:地址通不通、密码对不对、场景在不在、它的模型
+     装好没有、要不要先译英。
+     信息接口**从本版起需要 key**(插件 3.2.0):钥匙不对就当场回 401,而那句 401 会
+     被上面翻成「访问密码不正确」;老插件(3.1.x)仍然是公开的,那条路由 `auth.authorized`
+     回答,所以两条分支都在。 */
   async function chpTest(config) {
     var requestHeaders = headers(config), timeoutMs = Math.min(Number(config.timeoutMs) || 30000, 30000);
     var found, doc;
     try {
       found = await chpInfoRequest(config, requestHeaders, timeoutMs);
     } catch (error) { throw chpError(error); }
-    doc = chpRemember(found.document);
+    doc = chpRemember(found.document, config);
     /* 协议大版本对不上就停下。`spec` 只承诺"同一版内只加不删",跨版本则是另一回事:
        拿旧规则继续猜,请求体在新版里可能只是被忽略 —— 那比报错更难查。
        (这一条正是本应用从 chp/1 换到 chp/2 的现场:插件把能力表换成了 rules+abilities。) */
@@ -607,6 +644,11 @@
   function chpError(error) {
     var text = String(error && error.message || error || "");
     if (/unauthorized|401/.test(text)) return new Error(t("访问密码不正确,请在 ComfyUI 的 CHP 插件配置节点里核对密码", "Wrong access password. Check the password set in the ComfyUI CHP plugin's config node."));
+    /* 一把 key 有它自己的场景。CHP 回 403 因此是"这把 key 没被授权这个能力" ——
+       管理员的决定,不是装坏了。它与宿主自己的能力授权(下面那条「能力已被拒绝」)
+       是两件事,所以自己一句,**不复用那一串**。 */
+    if (/forbidden_capability|403/.test(text)) return new Error(t("这把 key 没有这个能力,请让管理员在 CHP 控制台里为这个场景授权",
+      "This key is not allowed this capability. Ask the administrator to grant this category in the CHP console."));
     if (/unsupported_category/.test(text)) return new Error(t("插件不认识这个场景,请升级 CHP 插件", "The plugin does not know this category. Please update the CHP plugin."));
     if (/unsupported_size/.test(text)) return new Error(t("插件不接受这个画幅;请点一次「测试连接」,读取插件当前的画幅表", "The plugin does not accept this resolution. Test the connection once to read the plugin's current frames."));
     if (/unsupported_steps/.test(text)) return new Error(t("插件不接受这个步数;请把这张卡换回它自己的出厂步数", "The plugin does not accept this step count. Put this card back on its factory step count."));
@@ -1149,6 +1191,8 @@
       taskName: taskName,
       refStrength01: refStrength01,
       chpTerminal: chpTerminal,
+      /* 插件回绝的那句话怎么说 —— 测试直接读它(错误码到文案的映射,见 §5.2) */
+      chpError: chpError,
       chpReadQuiet: chpReadQuiet,
       /* 幂等键 / 安全提交 / 可续取的失败 / 取输出 —— 四条都是"不丢图"那条线上的,
          测试直接读它们(见 tests/providers.test.mjs)。 */
